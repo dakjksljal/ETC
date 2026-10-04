@@ -58,5 +58,29 @@ local d3 = {}
 for _, r in ipairs((sim3 and sim3.statRatios) or {}) do d3[r.stat] = r.simRating - r.currentRating end
 check("커스텀 경로: 가속 +74 / 치명 -74", d3.haste == 74 and d3.crit == -74)
 
+-- ── 홈 가정: 유저가 직접 고른 아이템의 부위는 착용템에 홈이 없어도 보석이 계산된다 ──
+local HEAD_ID = 237832
+local L_HEAD = "|cnIQ4:|Hitem:237832::::::::90:250::13:6:12214:13667:12497:13751:14001:13836|h[Cover]|h|r" -- 보석 필드 비어 있음 = 홈 없음
+local L_HCRAFT = "item:237832:::::::::250:::6:12214:13667:12497:13751:14001:13836:2:29:36:30:49"
+W.worn[1] = L_HEAD
+W.ilvl[L_HEAD], W.ilvl[L_HCRAFT] = 331, 331
+W.stats[L_HEAD] = { crit = 99, haste = 99 }
+W.info[HEAD_ID] = { equipLoc = "INVTYPE_HEAD", classID = 4, subclassID = 4 }
+local GEM = 240890
+WythicPlusGearData.gemStats = { [GEM] = { crit = 7, haste = 16 } }
+local spec2 = {
+    sample = 50, stats = spec.stats,
+    items = { HEAD = { e(HEAD_ID, 9, 331, 99, 99, 0, 0) }, FEET = spec.items.FEET },
+    gems = { HEAD = { { GEM, 6 } } },
+}
+local hpin = { item_id = HEAD_ID, link = L_HCRAFT, ilvl = 331, stats = { crit = 0, haste = 99, mastery = 99, versatility = 0 }, srcTab = "craft" }
+local noAssume = WythicPlus_GearSimulate(spec2, { HEAD = hpin })
+check("홈 가정 없음(기존): 홈 없는 착용 머리 → 보석 추천 없음", noAssume and noAssume.gemRecommendations.HEAD == nil)
+local assume = WythicPlus_GearSimulate(spec2, { HEAD = hpin }, nil, nil, nil, { HEAD = true })
+check("홈 가정: 직접 고른 머리 → 보석 계산됨", assume and assume.gemRecommendations.HEAD ~= nil,
+    assume and tostring(assume.gemRecommendations.HEAD))
+local noPinAssume = WythicPlus_GearSimulate(spec2, {}, nil, nil, nil, nil)
+check("핀 없는 부위는 기존대로(홈 없음 → 보석 없음)", noPinAssume and noPinAssume.gemRecommendations.HEAD == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

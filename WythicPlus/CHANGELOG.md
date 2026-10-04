@@ -5,6 +5,11 @@
 ### Added
 - **Crafted tab in the item picker.** A fifth tab lists every crafted item of the season that fits the slot and your specialization (98 items, collected from Wowhead by `tools/build-craft-data.py` into `WythicPlusCraftData.lua`). Pick the secondary stats with the four stat buttons (up to two; items with one stat choice use the first, "Fixed" items have no choice), then click an item: it is pinned at max crafting quality (331) with that item level's secondary budget split evenly over your stats, and the optimizer re-optimizes the other slots around it like any pin. Changing the stat buttons updates a crafted pin in place. Bonus IDs (embellishment included) follow the rankers' copy of the same item when one exists. Card chip reads "Crafted · Crit/Haste", tooltips show the chosen stats, the SimC export carries `crafted_stats`, and "Equip all bag picks" skips crafted pins (you don't own them yet)
 - The picker tabs are 46px wide (was 58px) so the fifth tab fits
+- **Gems, enchants and embellishments for items you pick yourself.** Applies only to items you choose (any tab); automatic recommendations are unchanged
+  - Gems: a slot you picked an item for is assumed socketable (one socket) wherever rankers socket that slot (neck, rings, head, wrist, waist), so the optimizer suggests a gem there and the gem picker opens from the "◇ Empty socket" line even if your current item has no socket
+  - Enchants: clicking a card's enchant line now opens an enchant picker (it used to open the gem picker). Every enchant of the season is listed at max rank; flat secondary-stat enchants (the ring enchants) are scored as the difference from the enchant you wear now, other effects (procs, primary or tertiary stats) are selectable but not scored. Without a choice the worn enchant is assumed to carry over. Choices are saved in presets and exported to SimC (`enchant_id`, gems for picked items)
+  - Embellishments (Crafted tab only, since only crafted gear can be embellished): "Meta pick" (default), "None" or any of the season's embellishments that fit the item; the link, tooltip and SimC export follow the choice, the effect itself is not scored. Fixed-stat crafted items keep their built-in embellishment
+  - A warning appears under the header when the shown setup has 3 or more embellished items
 
 ## v1.6.45 (2026-09-26)
 

@@ -1241,7 +1241,8 @@ local function RunSimulate(spec, pop, pinned, ratingsOverride, gemPins, pinPop, 
             -- 착용 아이템에 홈이 0개면 보석 추천 제외 (빈 슬롯·링크 미상은 기존대로 추천)
             local wlink = invBySlot[slotKey] and GetInventoryItemLink("player", invBySlot[slotKey])
             local sockets = SocketCount(wlink)
-            local noSocket = sockets ~= nil and sockets == 0
+            -- 유저가 직접 고른 아이템의 부위(coreOpts.socketSlots)는 홈을 뚫을 수 있다고 가정 — 착용템 홈과 무관
+            local noSocket = sockets ~= nil and sockets == 0 and not (coreOpts.socketSlots and coreOpts.socketSlots[slotKey])
             if not (lockedSlots and lockedSlots[slotKey]) and not noSocket then -- 잠긴 부위는 보석 추천도 제외
                 local arr, ids = {}, {}
                 for i = 1, #list do
@@ -1470,7 +1471,8 @@ end
 -- 시뮬 실행(메타 후보). pinned = {슬롯키→핀} (숫자=메타 아이템, 테이블=가방/프리셋 아이템).
 -- lockedSlots = {슬롯키→true} 부위 잠금 — 잠긴 슬롯에 핀이 있으면 그 핀(가방 선택 포함)을
 -- 선고정하고, 없으면 착용 그대로 유지한다.
-function WythicPlus_GearSimulate(spec, pinned, ratingsOverride, gemPins, lockedSlots)
+-- socketSlots = {슬롯키 → true} 홈 가정 부위(유저가 직접 고른 아이템의 부위). 없으면 기존 동작
+function WythicPlus_GearSimulate(spec, pinned, ratingsOverride, gemPins, lockedSlots, socketSlots)
     if not (WythicPlusGearCore and spec) then return nil end
     local pop = toPreparedItems(spec.items)
     -- 소지품 모드와 동일하게 모든 핀을 선고정: 핀 스탯을 baseline에 깔고 나머지 슬롯을
@@ -1478,7 +1480,8 @@ function WythicPlus_GearSimulate(spec, pinned, ratingsOverride, gemPins, lockedS
     -- 이전엔 잠금 슬롯의 핀만 선고정이라, 일반 핀은 "핀 없는 셈 친 추천" 위에 얹혀
     -- 다른 부위가 반응하지 않았다 (2026-09-08 제보).
     local runPinned, lockedRecs, corr, equipOverride = LockPins(pop, pop, pinned, nil)
-    local sim = RunSimulate(spec, pop, runPinned, ratingsOverride, gemPins, nil, equipOverride, lockedSlots)
+    local sim = RunSimulate(spec, pop, runPinned, ratingsOverride, gemPins, nil, equipOverride, lockedSlots,
+        socketSlots and { socketSlots = socketSlots } or nil)
     ApplyLockPostSim(sim, spec, lockedRecs, corr)
     return sim
 end
@@ -1486,7 +1489,7 @@ end
 -- 보유템 최적화 — 후보를 "가방 소지품"으로 제한해 같은 코어로 시뮬.
 -- bagBySlot = {슬롯키 → {{itemId,link,ilvl}...}} (Gear UI 가방 스캔 결과).
 -- 핀 스탯 조회는 메타+보유 병합(pinPop)이라 메타 아이템 핀도 수치에 반영된다.
-function WythicPlus_GearSimulateOwned(spec, bagBySlot, pinned, ratingsOverride, gemPins, lockedSlots)
+function WythicPlus_GearSimulateOwned(spec, bagBySlot, pinned, ratingsOverride, gemPins, lockedSlots, socketSlots)
     if not (WythicPlusGearCore and spec) then return nil end
     local pop = toOwnedItems(spec, bagBySlot)
     local pinPop = {}
@@ -1507,7 +1510,7 @@ function WythicPlus_GearSimulateOwned(spec, bagBySlot, pinned, ratingsOverride, 
     local runPinned, lockedRecs, corr, equipOverride = LockPins(pop, pinPop, pinned, nil)
     -- ownedMode: 후보가 내 소지품이라 착용템과 같은 ID의 상위 ilvl 사본(예: 손 티어 308 착용, 가방 311)을
     -- 코어가 "이미 착용"으로 넘기지 않고 교체 후보로 본다(2026-09-19).
-    local sim = RunSimulate(spec, pop, runPinned, ratingsOverride, gemPins, pinPop, equipOverride, lockedSlots, { ownedMode = true })
+    local sim = RunSimulate(spec, pop, runPinned, ratingsOverride, gemPins, pinPop, equipOverride, lockedSlots, { ownedMode = true, socketSlots = socketSlots })
     ApplyLockPostSim(sim, spec, lockedRecs, corr)
     if sim then
         sim.ownedMode = true

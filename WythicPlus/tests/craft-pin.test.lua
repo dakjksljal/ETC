@@ -1,5 +1,5 @@
 -- 스모크 테스트: 제작 탭 데이터·링크·수치 (node fengari 러너 또는 luajit tests/craft-pin.test.lua)
--- WythicPlusGear.lua 의 CraftLink / CraftStats 를 미러링한다 (WoW API 의존 → 스텁).
+-- WythicPlusGear.lua 의 ApplyEmbellish / CraftLink / CraftStats / EmbApplies / EnchantStatsById 를 미러링한다 (WoW API 의존 → 스텁).
 -- ⚠️ 아래 두 함수는 원본과 로직이 일치해야 한다 (변경 시 함께 갱신).
 -- 규칙: 제작템 2차 스탯은 유저가 고른다(아이템마다 1~2개, 0 = 고정). 링크 modifier 29/30 = 제작 스탯 1/2(ITEM_MOD 스탯 ID).
 -- 수치 = 최고 품질 ilvl의 2차 스탯 예산(툴팁 자리표시자 합)을 지정 스탯에 균등 배분.
@@ -43,10 +43,26 @@ local function CraftBonuses(itemId)
     local info = CraftInfo(itemId)
     return (info and cd.twoHandInv and cd.twoHandInv[info.inv]) and cd.bonus.twoHand or cd.bonus.std
 end
-local function CraftLink(itemId, keys)
+local function ApplyEmbellish(bonuses, emb)
+    if emb == nil then return bonuses end
+    local kept = {}
+    for b in bonuses:gmatch("[^:]+") do
+        local n = tonumber(b)
+        if not ((cd.embellishMarkers and cd.embellishMarkers[n]) or (cd.embellishments and cd.embellishments[n])) then
+            kept[#kept + 1] = b
+        end
+    end
+    if emb ~= 0 then
+        kept[#kept + 1] = "8960"
+        kept[#kept + 1] = tostring(emb)
+    end
+    return table.concat(kept, ":")
+end
+local function CraftLink(itemId, keys, emb)
     local info = CraftInfo(itemId)
     if not info then return nil end
     local bonuses = CraftBonuses(itemId)
+    if (info.n or 0) > 0 then bonuses = ApplyEmbellish(bonuses, emb) end
     local nb = 1 + select(2, bonuses:gsub(":", ""))
     local mods = {}
     for i = 1, math.min(info.n or 0, 2) do
@@ -154,6 +170,94 @@ for id, e in pairs(cd.items) do if cd.twoHandInv[e.inv] and not META_BONUS[id] t
 if TWO then
     check("양손 무기: 양손 보너스 템플릿", table.concat(parse(CraftLink(TWO, { "crit", "haste" })).bonuses, ":") == cd.bonus.twoHand)
 end
+
+-- ── 장식 ──
+check("데이터: 장식 15종 이상", (function() local c = 0 for _ in pairs(cd.embellishments) do c = c + 1 end return c >= 15 end)())
+check("데이터: 장식 표지 8960", cd.embellishMarkers[8960] == true)
+-- 메타 보너스(장식 Arcanoweave 12384 포함)에서 장식만 교체
+META_BONUS[MARCH] = "12214:13667:12497:13751:14001:8960:12384:8792:13836"
+local lMeta = CraftLink(MARCH, { "haste", "versatility" }, nil)
+check("장식 메타 픽: 보너스 그대로", table.concat(parse(lMeta).bonuses, ":") == META_BONUS[MARCH])
+local lNone = CraftLink(MARCH, { "haste", "versatility" }, 0)
+check("장식 없음: 8960·12384 제거, 나머지 유지", table.concat(parse(lNone).bonuses, ":") == "12214:13667:12497:13751:14001:8792:13836")
+local lSun = CraftLink(MARCH, { "haste", "versatility" }, 12385)
+check("장식 교체: 8960:12385 부착, 12384 제거", table.concat(parse(lSun).bonuses, ":") == "12214:13667:12497:13751:14001:8792:13836:8960:12385")
+check("장식 교체해도 스탯 modifier 유지", parse(lSun).mods["29"] == "36" and parse(lSun).mods["30"] == "40")
+if FIXED then
+    local before = table.concat(parse(CraftLink(FIXED, {}, nil)).bonuses, ":")
+    check("스탯 고정형: 장식 선택 무시(내장 장식)", table.concat(parse(CraftLink(FIXED, {}, 12385)).bonuses, ":") == before)
+end
+
+local function EmbApplies(use, info)
+    local inv, cls, prof = info.inv, info.cls, info.prof
+    local nonArmor = { [2] = true, [11] = true, [12] = true, [14] = true, [22] = true, [23] = true }
+    local isArmor = cls == 4 and not nonArmor[inv]
+    local isWeapon = cls == 2
+    if use == "armor" then return isArmor
+    elseif use == "equipment" then return true
+    elseif use == "weaponArmor" then return isArmor or isWeapon
+    elseif use == "weaponOffhand" then return isWeapon or inv == 14 or inv == 22 or inv == 23
+    elseif use == "accessory" then return inv == 2 or inv == 11
+    elseif use == "bsWeapon" then return isWeapon and prof == 164
+    elseif use == "engGun" then return prof == 202 and (inv == 15 or inv == 26)
+    elseif use == "engBoots" then return prof == 202 and inv == 8
+    elseif use == "engEquip" then return prof == 202
+    end
+    return false
+end
+local boots = cd.items[MARCH]
+check("데이터: 제작템 cls/prof 필드", boots.cls == 4 and boots.prof == 164)
+check("장식 적용: 안감(armor) → 판금 신발 가능", EmbApplies("armor", boots))
+check("장식 적용: 다크문 인장(weaponOffhand) → 신발 불가", not EmbApplies("weaponOffhand", boots))
+check("장식 적용: 사냥꾼 의식석(bsWeapon) → 신발 불가", not EmbApplies("bsWeapon", boots))
+check("장식 적용: 반지에 안감 불가", not EmbApplies("armor", { inv = 11, cls = 4, prof = 755 }))
+check("장식 적용: 반지에 암모나이트(accessory) 가능", EmbApplies("accessory", { inv = 11, cls = 4, prof = 755 }))
+check("장식 적용: 대장 무기에 의식석 가능", EmbApplies("bsWeapon", { inv = 17, cls = 2, prof = 164 }))
+check("장식 적용: 기계공학 신발 전용", EmbApplies("engBoots", { inv = 8, cls = 4, prof = 202 }) and not EmbApplies("engBoots", boots))
+
+-- ── 마법부여 ──
+local ench = {}
+for _, e in ipairs(cd.enchants) do ench[e.name] = e end
+check("데이터: 마법부여 20종 이상", #cd.enchants >= 20)
+local th = ench["Enchant Ring - Thalassian Haste"]
+check("마부: 탈라시안 가속 2등급 = 가속 24", th and th.s2 and th.s2.haste == 24)
+check("마부: 탈라시안 가속 1등급 = 가속 22", th and th.s1 and th.s1.haste == 22)
+local br = ench["Enchant Weapon - Berserker's Rage"]
+check("마부: 발동형 무기 마부는 계산 제외(nil)", br and br.s2 == nil)
+local mw = ench["Enchant Chest - Mark of the Worldsoul"]
+check("마부: 주 스탯 마부는 계산 제외(nil)", mw and mw.s2 == nil)
+for _, e in ipairs(cd.enchants) do
+    if e.s2 then
+        local only = true
+        for k in pairs(e.s2) do if k ~= "crit" and k ~= "haste" and k ~= "mastery" and k ~= "versatility" then only = false end end
+        check("마부 스탯은 2차 스탯만: " .. e.name, only)
+    end
+end
+-- 착용 마부 ID → 스탯: 같은 이름 ID가 둘이면 작은 쪽 1등급 (원본 EnchIndex 규칙)
+local names = { [8020] = { "", 3, 244010, "Enchant Ring - Thalassian Haste" }, [8021] = { "", 3, 244011, "Enchant Ring - Thalassian Haste" },
+                [7997] = { "", 3, 243987, "Enchant Ring - Nature's Fury" } }
+local byId = {}
+local idsByName = {}
+for id, n in pairs(names) do idsByName[n[4]] = idsByName[n[4]] or {}; table.insert(idsByName[n[4]], id) end
+for _, e in ipairs(cd.enchants) do
+    local ids = idsByName[e.name]
+    if ids then
+        table.sort(ids)
+        for i, id in ipairs(ids) do byId[id] = { e = e, tier = (#ids >= 2 and i == 1) and 1 or 2 } end
+    end
+end
+local function EnchantStatsById(id)
+    local hit = id and byId[id]
+    if not hit then return {} end
+    return (hit.tier == 1 and hit.e.s1 or hit.e.s2) or {}
+end
+check("착용 마부 1등급 ID → 가속 22", EnchantStatsById(8020).haste == 22)
+check("착용 마부 2등급 ID → 가속 24", EnchantStatsById(8021).haste == 24)
+check("ID 하나뿐 → 2등급 취급(치명 29)", EnchantStatsById(7997).crit == 29)
+check("모르는 마부 → 0", next(EnchantStatsById(1234)) == nil)
+-- 핀 차분 = 새 마부 - 착용 마부 (예: 착용 자연의 격노 치명 29 → 탈라시안 가속 24)
+local new, old = th.s2, EnchantStatsById(7997)
+check("마부 교체 차분: 가속 +24 / 치명 -29", (new.haste or 0) - (old.haste or 0) == 24 and (new.crit or 0) - (old.crit or 0) == -29)
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)
