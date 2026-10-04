@@ -1329,6 +1329,11 @@ end
 local function PinLiveStats(pin, src)
     local isTbl = type(pin) == "table"
     local link = isTbl and pin.link or nil
+    -- 제작 탭 핀: 2차 스탯은 유저가 지정한 값(최고 품질 예산을 지정 스탯에 균등 배분)이 정답이다. 조립 링크의
+    -- GetItemStats는 제작 스탯 modifier를 반영하지 않거나 자리표시자로 비어 있을 수 있어 다시 읽지 않는다.
+    if isTbl and pin.srcTab == "craft" and type(pin.stats) == "table" and next(pin.stats) ~= nil then
+        return pin.stats, pin.ilvl or 0, link
+    end
     local stats, ilvl
     if link then
         local live = linkSecondaryStats(link)
@@ -1590,8 +1595,8 @@ function WythicPlus_GearCustomOnly(spec, pinned, gemPins)
                 end
             end
             if not (repIlvl and repIlvl > (eq.item_level or 0)) then pinStats = nil end
-        elseif sameWorn then
-            pinStats = nil -- 가방 핀이 착용템 그대로면 차분 없음
+        elseif sameWorn and pin.srcTab ~= "craft" then
+            pinStats = nil -- 가방 핀이 착용템 그대로면 차분 없음 (제작 핀은 같은 템의 다른 스탯 재제작일 수 있어 차분 반영)
         end
         if pinStats then
             local prev = {}

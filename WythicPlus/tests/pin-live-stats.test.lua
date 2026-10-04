@@ -20,6 +20,9 @@ C_Item = { GetDetailedItemLevelInfo = function(link) return ILVL_BY_LINK[link] e
 local function PinLiveStats(pin, src)
     local isTbl = type(pin) == "table"
     local link = isTbl and pin.link or nil
+    if isTbl and pin.srcTab == "craft" and type(pin.stats) == "table" and next(pin.stats) ~= nil then
+        return pin.stats, pin.ilvl or 0, link
+    end
     local stats, ilvl
     if link then
         local live = linkSecondaryStats(link)
@@ -78,6 +81,17 @@ local BELLOW = "item:250228:::::::::80:250::0"
 STATS_BY_LINK[BELLOW] = {}; ILVL_BY_LINK[BELLOW] = 315
 st = PinLiveStats({ item_id = 250228, link = BELLOW, stats = {}, ilvl = 315 }, nil)
 check("무2차 장신구: 빈 테이블 유지(nil 아님)", type(st) == "table" and next(st) == nil)
+
+-- 6) 제작 탭 핀: 유저 지정 스탯이 정답 — 링크가 다른 배분(제작 스탯 modifier 미반영)을 돌려줘도 핀 값 유지
+local CRAFT = "item:237828:::::::::250:::6:12214:13667:12497:13751:14001:13836:2:29:36:30:40"
+STATS_BY_LINK[CRAFT] = { crit = 74, mastery = 74 }; ILVL_BY_LINK[CRAFT] = 326
+st, il = PinLiveStats({ item_id = 237828, link = CRAFT, stats = { haste = 74, versatility = 74 }, ilvl = 331, srcTab = "craft" }, nil)
+check("제작 핀: 지정 스탯 유지(가속)", st.haste == 74 and (st.crit or 0) == 0)
+check("제작 핀: 지정 스탯 유지(유연)", st.versatility == 74)
+check("제작 핀: 최고 품질 ilvl 유지", il == 331)
+-- 제작 핀이라도 스탯이 비어 있으면 기존 규칙(링크 재조회)
+st = PinLiveStats({ item_id = 237828, link = CRAFT, stats = {}, ilvl = 331, srcTab = "craft" }, nil)
+check("빈 제작 핀: 링크 폴백", st.crit == 74)
 
 -- 착용 실물 판정
 local rwIdol = { id = 250229, link = IDOL_WORN, ilvl = 321, total = { crit = 120 } }

@@ -18,6 +18,7 @@ WythicPlus.lua
 WythicPlusLeagueData.lua
 WythicPlusLeague.lua
 WythicPlusGearData.lua
+WythicPlusCraftData.lua
 WythicPlusGearCore.lua
 WythicPlusGearDiag.lua
 WythicPlusGear.lua

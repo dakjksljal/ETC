@@ -40,6 +40,7 @@ local EMERALD = { 0.204, 0.827, 0.6 } -- #34d399 (가방/소지품 계열)
 local SKY = { 0.22, 0.74, 0.97 } -- 던전 탭 계열
 local VIOLET = { 0.75, 0.52, 0.99 } -- 레이드 탭 계열
 local TEAL = { 0.176, 0.831, 0.749 } -- #2dd4bf (마나용제 변환 가정 계열, 웹 catalyst 색)
+local CRAFT_BLUE = { 0.376, 0.647, 0.980 } -- #60a5fa (제작 탭 계열 — 출처 칩 "제작"과 같은 색)
 local RING_BG = { 0.153, 0.153, 0.165 } -- #27272a
 
 local ROW_H = 52
@@ -346,10 +347,14 @@ local function AttachSrcBadge(rec, isLeft)
 end
 
 -- 출처 뱃지 채우기/숨김. conv("type|ko|en") = 마나용제 변환 티어 → "변환: 원본명" teal 뱃지
-local function SetSrcBadge(rec, srcType, nameKo, nameEn, conv, convFrom)
+local function SetSrcBadge(rec, srcType, nameKo, nameEn, conv, convFrom, craftLabel)
     local label, hex
+    -- 제작 탭 핀: 칩 = "제작 · 지정 스탯" (제작 색)
+    if craftLabel then
+        label, hex = craftLabel, "60a5fa"
+    end
     -- 마나용제 변환 가정 추천: 칩 = 마나용제 아이콘 + "세트 변환 필요" (원본 아이템명은 툴팁 줄에)
-    if convFrom then
+    if not label and convFrom then
         local icon = WythicPlus_GearCatalystInfo and WythicPlus_GearCatalystInfo()
         local pre = icon and ("|T" .. icon .. ":12:12:0:0|t ") or ""
         label, hex = pre .. L["세트 변환 필요"], "2dd4bf"
@@ -395,10 +400,10 @@ local function SetRec(rec, recInfo, animate)
         rec.name:SetText(C_Item.GetItemNameByID(recInfo.itemId) or (L["아이템 "] .. recInfo.itemId))
         rec.ilvlText:SetText((recInfo.ilvl and recInfo.ilvl > 0) and tostring(recInfo.ilvl) or "")
         rec.ilvlText:Show()
-        SetSrcBadge(rec, recInfo.srcType, recInfo.srcName, recInfo.srcNameEn, recInfo.conv, recInfo.convFrom) -- 출처 뱃지 (웹 스타일)
+        SetSrcBadge(rec, recInfo.srcType, recInfo.srcName, recInfo.srcNameEn, recInfo.conv, recInfo.convFrom, recInfo.craftLabel) -- 출처 뱃지 (웹 스타일)
         local st = recInfo.srcTab
         rec.badge:SetText(recInfo.convFrom and L["용제 변환"]
-            or (st == "dungeon" or st == "raid") and L["커스텀"]
+            or (st == "dungeon" or st == "raid" or st == "craft") and L["커스텀"]
             or (recInfo.bagLink and st ~= "meta") and L["가방"]
             or (recInfo.rank and string.format(L["메타 %d위"], recInfo.rank)) or L["추천"])
         rec.recIlvl = recInfo.ilvl
@@ -411,17 +416,19 @@ local function SetRec(rec, recInfo, animate)
         rec.recSrcTab = recInfo.srcTab -- 잠금 승격 핀이 출처 탭 색/딱지를 유지하도록
         rec.recTrackPinned = recInfo.trackPinned
         rec.recCrafted = (recInfo.srcType == "crafted")
-        -- 탭 색 체계 그대로: 메타=앰버 / 가방=에메랄드 / 던전=하늘 / 레이드=보라
+        rec.recCraftStats = recInfo.craftStats -- 제작 탭 핀: 툴팁 2차 스탯 줄을 지정 스탯으로 고쳐 쓴다
+        -- 탭 색 체계 그대로: 메타=앰버 / 가방=에메랄드 / 던전=하늘 / 레이드=보라 / 제작=파랑
         -- (srcTab이 "meta"인 링크 핀 — Peak 344 등 — 은 메타 취급, 앰버)
         local rc = AMBER
         if recInfo.convFrom then rc = TEAL
         elseif st == "dungeon" then rc = SKY
         elseif st == "raid" then rc = VIOLET
+        elseif st == "craft" then rc = CRAFT_BLUE
         elseif recInfo.bagLink and st ~= "meta" then rc = EMERALD end
         rec.iconBorder:SetVertexColor(rc[1], rc[2], rc[3], 1)
         rec.arrow:SetVertexColor(rc[1], rc[2], rc[3])
         rec.badgeFrame:SetBackdropColor(rc[1], rc[2], rc[3], 1)
-        if recInfo.convFrom or st == "dungeon" or st == "raid" then
+        if recInfo.convFrom or st == "dungeon" or st == "raid" or st == "craft" then
             rec.name:SetTextColor(rc[1], rc[2], rc[3])
         elseif recInfo.bagLink and st ~= "meta" then
             rec.name:SetTextColor(0.42, 0.85, 0.66) -- emerald-350쯤 (가독용 밝은 톤)
@@ -439,6 +446,7 @@ local function SetRec(rec, recInfo, animate)
         rec.recConvLink = nil
         rec.recConvWorn = nil
         rec.recTrackPinned = nil
+        rec.recCraftStats = nil
         rec.srcBadge:Hide()
         rec.ilvlText:Hide()
         rec.arrow:Hide()
@@ -1176,6 +1184,159 @@ local function RecToPin(rec)
     }
 end
 
+-- ── 제작 탭 — 시즌 전체 제작 장비(WythicPlusCraftData) + 유저 지정 2차 스탯 ──
+-- 제작템의 2차 스탯은 제작할 때 유저가 고른다(아이템마다 1~2개, 0 = 스탯 고정 아이템). 링크에선 modifier 29/30
+-- (제작 스탯 1/2 = ITEM_MOD 스탯 ID)로 표현된다. 템렙은 최고 품질 고정(데이터 ilvl). 수치 = 그 ilvl의 2차 스탯
+-- 예산을 지정 스탯에 균등 배분. 핀(srcTab "craft")으로 들어가 엔진이 나머지 부위를 재최적화한다.
+local function CraftInfo(itemId)
+    local cd = WythicPlusCraftData
+    return cd and cd.items and itemId and cd.items[itemId] or nil
+end
+
+-- 최고 품질 보너스ID: 랭커가 최고 품질로 착용한 같은 아이템이 있으면 그 보너스(장식 포함 — 메타 픽),
+-- 없으면 데이터 템플릿(양손/원거리 무기는 별도). 현재 스펙 데이터 우선, 없으면 전체 스펙에서 찾는다.
+local craftMetaBonus -- itemId → bonuses (전체 스펙, 1회 구성)
+local function CraftBonuses(itemId)
+    local cd = WythicPlusCraftData
+    local function find(items)
+        for _, list in pairs(items or {}) do
+            for i = 1, #list do
+                local e = list[i]
+                if e[1] == itemId and e[3] == cd.ilvl and e[11] and e[11] ~= "" then return e[11] end
+            end
+        end
+        return nil
+    end
+    local b = panel and panel.curSpec and find(panel.curSpec.items)
+    if b then return b end
+    if not craftMetaBonus then
+        craftMetaBonus = {}
+        for _, sp in pairs(WythicPlusGearData.specs or {}) do
+            for _, list in pairs(sp.items or {}) do
+                for i = 1, #list do
+                    local e = list[i]
+                    if craftMetaBonus[e[1]] == nil and CraftInfo(e[1]) and e[3] == cd.ilvl and e[11] and e[11] ~= "" then
+                        craftMetaBonus[e[1]] = e[11]
+                    end
+                end
+            end
+        end
+    end
+    if craftMetaBonus[itemId] then return craftMetaBonus[itemId] end
+    local info = CraftInfo(itemId)
+    return (info and cd.twoHandInv and cd.twoHandInv[info.inv]) and cd.bonus.twoHand or cd.bonus.std
+end
+
+-- 제작 링크: 최고 품질 보너스 + 제작 스탯 modifier(29 = 스탯1, 30 = 스탯2). keys = 지정 스탯(순서 = 스탯1, 스탯2)
+local function CraftLink(itemId, keys)
+    local cd = WythicPlusCraftData
+    local info = CraftInfo(itemId)
+    if not info then return nil end
+    local bonuses = CraftBonuses(itemId)
+    local nb = 1 + select(2, bonuses:gsub(":", ""))
+    local mods = {}
+    for i = 1, math.min(info.n or 0, 2) do
+        local sid = keys and keys[i] and cd.statIds[keys[i]]
+        if sid then mods[#mods + 1] = (i == 1 and "29:" or "30:") .. sid end
+    end
+    local tail = #mods > 0 and (":" .. #mods .. ":" .. table.concat(mods, ":")) or ""
+    return ("item:%d:::::::::%s:::%d:%s%s"):format(itemId, CurrentSpecID(), nb, bonuses, tail)
+end
+
+-- 제작 핀 수치: 스탯 고정 아이템은 링크 그대로, 선택형은 그 ilvl의 2차 스탯 예산(게임 툴팁의 자리표시자 합)을
+-- 지정 스탯에 균등 배분. 지정 스탯이 모자라거나 아이템 정보가 아직 없으면 nil
+local function CraftStats(itemId, link, keys)
+    local info = CraftInfo(itemId)
+    if not (info and link) then return nil end
+    local n = info.n or 0
+    local st = (WythicPlus_GearLinkStats and WythicPlus_GearLinkStats(link)) or {}
+    local total = 0
+    for _, k in ipairs(STAT_ORDER) do total = total + (st[k] or 0) end
+    if n == 0 then
+        if total > 0 then return st end
+        local shown = LinkSecondaryBudget(link)
+        return next(shown) ~= nil and shown or nil
+    end
+    if not keys or #keys < n then return nil end
+    if total <= 0 then
+        local _, budget = LinkSecondaryBudget(link)
+        total = budget
+    end
+    if not total or total <= 0 then return nil end
+    local out = { crit = 0, haste = 0, mastery = 0, versatility = 0 }
+    local each = math.floor(total / n + 0.5)
+    for i = 1, n do out[keys[i]] = each end
+    return out
+end
+
+-- 제작 탭 선택 스탯 (부위별, 세션 유지)
+local function CraftKeys(slotKey)
+    panel.craftStats = panel.craftStats or {}
+    panel.craftStats[slotKey] = panel.craftStats[slotKey] or {}
+    return panel.craftStats[slotKey]
+end
+
+local CRAFT_SHORT = { crit = L["치명"], haste = L["가속"], mastery = L["특화"], versatility = L["유연"] }
+
+-- 제작 핀 생성 (스탯 미지정·정보 미로딩이면 nil). ilvl은 최고 품질 고정
+local function MakeCraftPin(itemId, keys)
+    local info = CraftInfo(itemId)
+    if not info then return nil end
+    local link = CraftLink(itemId, keys)
+    local st = CraftStats(itemId, link, keys)
+    if not st then
+        EnsureItem(itemId)
+        return nil
+    end
+    return { item_id = itemId, link = link, ilvl = WythicPlusCraftData.ilvl, stats = st, srcTab = "craft" }
+end
+
+-- 카드 칩 라벨: "제작 · 치명/가속" (스탯 고정 아이템은 "제작")
+local function CraftLabel(pin)
+    local info = CraftInfo(pin.item_id)
+    local parts = {}
+    if info and (info.n or 0) > 0 then
+        for _, k in ipairs(STAT_ORDER) do
+            if (pin.stats and pin.stats[k] or 0) > 0 then parts[#parts + 1] = CRAFT_SHORT[k] end
+        end
+    end
+    return #parts > 0 and (L["제작"] .. " · " .. table.concat(parts, "/")) or L["제작"]
+end
+
+-- 제작 링크 툴팁 직후 호출: 게임이 그린 2차 스탯 줄(자리표시자 포함)을 지정 스탯 수치로 덮어쓴다
+local function CraftFixTooltip(stats)
+    if not stats then return end
+    local hits, shown, _, numFirst = ScanSecondaryLines(function(i)
+        local fs = _G["GameTooltipTextLeft" .. i]
+        return fs and fs:GetText()
+    end, GameTooltip:NumLines())
+    if #hits > 0 then
+        local hasPlaceholder = false
+        for _, h in ipairs(hits) do
+            if h.key == "placeholder" then hasPlaceholder = true end
+        end
+        if hasPlaceholder or not SameSecondarySplit(shown, stats, 0.001) then
+            local j = 0
+            for _, k in ipairs(STAT_ORDER) do
+                local v = stats[k] or 0
+                if v > 0 then
+                    local text = FormatStatLine(k, v, numFirst)
+                    if j < #hits then
+                        j = j + 1
+                        _G["GameTooltipTextLeft" .. hits[j].i]:SetText(text)
+                    else
+                        GameTooltip:AddLine(text, 0, 1, 0)
+                    end
+                end
+            end
+            for i = j + 1, #hits do _G["GameTooltipTextLeft" .. hits[i].i]:SetText(" ") end
+        end
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cff00ccffWythic+|r " .. string.format(L["제작 가정 — 최고 품질 %d, 선택한 2차 스탯 기준"],
+        (WythicPlusCraftData and WythicPlusCraftData.ilvl) or 0), 0.8, 0.8, 0.8, true)
+end
+
 local function EJDisplayLink(link, trackKey)
     if not link then return nil end
     local itemId = tonumber(link:match("item:(%d+)"))
@@ -1368,10 +1529,11 @@ local function EnsureDropdown()
     d.page = 1
     d.tab = "meta"
 
-    -- 탭 (메타 / 가방)
+    -- 탭 (메타 / 가방 / 던전 / 레이드 / 제작) — 5탭이 드롭다운 폭(268)에 들어가도록 46px
+    local TAB_W, TAB_STEP = 46, 49
     local function TabButton(text, key, x)
         local b = CreateFrame("Button", nil, d, "BackdropTemplate")
-        b:SetSize(58, 22)
+        b:SetSize(TAB_W, 22)
         b:SetPoint("TOPLEFT", x, -8)
         b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
         b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1385,9 +1547,52 @@ local function EnsureDropdown()
         return b
     end
     d.tabMeta = TabButton(L["메타"], "meta", 12)
-    d.tabBags = TabButton(L["가방"], "bags", 12 + 62)
-    d.tabDungeon = TabButton(L["던전"], "dungeon", 12 + 124)
-    d.tabRaid = TabButton(L["레이드"], "raid", 12 + 186)
+    d.tabBags = TabButton(L["가방"], "bags", 12 + TAB_STEP)
+    d.tabDungeon = TabButton(L["던전"], "dungeon", 12 + TAB_STEP * 2)
+    d.tabRaid = TabButton(L["레이드"], "raid", 12 + TAB_STEP * 3)
+    d.tabCraft = TabButton(L["제작"], "craft", 12 + TAB_STEP * 4)
+
+    -- 제작 탭: 2차 스탯 선택 (최대 2개, 세 번째를 누르면 먼저 고른 것이 빠진다). 부위에 제작 핀이 있으면 즉시 갱신
+    d.craftLabel = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    d.craftLabel:SetText(L["2차 스탯 선택"])
+    d.craftHint = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    d.craftHint:SetJustifyH("LEFT")
+    d.craftHint:SetSpacing(2)
+    d.craftStatBtns = {}
+    for i, k in ipairs(STAT_ORDER) do
+        local b = CreateFrame("Button", nil, d, "BackdropTemplate")
+        b:SetSize((DROP_W - 24 - 3 * 4) / 4, 20)
+        b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+        b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.label:SetPoint("CENTER")
+        b.label:SetText(CRAFT_SHORT[k])
+        b.statKey = k
+        b:SetScript("OnClick", function(self)
+            local keys = CraftKeys(d.slotKey)
+            local idx
+            for j, v in ipairs(keys) do if v == self.statKey then idx = j end end
+            if idx then
+                table.remove(keys, idx)
+            else
+                if #keys >= 2 then table.remove(keys, 1) end
+                keys[#keys + 1] = self.statKey
+            end
+            d.craftWarn = nil
+            -- 이 부위의 제작 핀은 새 스탯으로 다시 만든다 (스탯이 모자라면 기존 핀 유지)
+            local pin = panel.pinnedItems[d.slotKey]
+            if type(pin) == "table" and pin.srcTab == "craft" then
+                local np = MakeCraftPin(pin.item_id, keys)
+                if np then
+                    panel.pinnedItems[d.slotKey] = np
+                    panel.presetRatings = nil
+                    if panel.Redraw then panel.Redraw() end
+                end
+            end
+            RenderDropdown(d)
+            d:Show()
+        end)
+        d.craftStatBtns[i] = b
+    end
 
     -- 도감 로트가 지연 로딩되면 캐시 비우고 다시 그림 (연속 이벤트는 0.5초 스로틀)
     d:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
@@ -1615,6 +1820,19 @@ local function GridButton(d, i)
         OwnTooltip(d) -- 드롭다운 내부 툴팁은 드롭다운 오른쪽에
         if self.link then
             GameTooltip:SetHyperlink(WithCurrentSpec(self.link))
+            -- 제작 탭: 2차 스탯 줄을 지금 선택한 스탯 수치로 (스탯이 모자라면 안내)
+            local pd = self:GetParent()
+            if pd.tab == "craft" and pd.mode ~= "gem" then
+                local info = CraftInfo(self.itemId)
+                local keys = CraftKeys(pd.slotKey)
+                local st = CraftStats(self.itemId, self.link, keys)
+                if st and info and (info.n or 0) > 0 then
+                    CraftFixTooltip(st)
+                elseif info and (info.n or 0) > #keys then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine("|cff00ccffWythic+|r " .. string.format(L["2차 스탯 %d개를 선택하면 수치가 표시됩니다"], info.n), 0.96, 0.62, 0.04, true)
+                end
+            end
         elseif self.bonuses and self.bonuses ~= "" then
             -- 선택된 강화 트랙을 그리드 툴팁에도 반영 (트랙 스텝 교체만 — VENOM 제외)
             local bonuses = self.bonuses
@@ -1682,10 +1900,28 @@ local function GridButton(d, i)
         local cur = panel.pinnedItems[dd.slotKey]
         local curId = type(cur) == "table" and cur.item_id or cur
         local sameVariant = self.link ~= nil or (panel.pinnedConv[dd.slotKey] or "") == (self.conv or "")
+        -- 제작 탭에선 기존 제작 핀만 "같은 선택"(다른 탭의 같은 ID 핀은 제작 핀으로 교체)
+        if dd.tab == "craft" and not (type(cur) == "table" and cur.srcTab == "craft") then sameVariant = false end
         if curId and curId == self.itemId and sameVariant then
             -- 핀된 아이템 재클릭 = 핀 해제 (토글)
             panel.pinnedItems[dd.slotKey] = nil
             panel.pinnedConv[dd.slotKey] = nil
+        elseif dd.tab == "craft" then
+            -- 제작 탭: 지정 스탯으로 최고 품질 제작을 가정한 핀. 착용 중인 같은 제작템도 다른 스탯 재제작일 수 있어
+            -- "착용 이하 레벨은 유지" 규칙을 적용하지 않는다. 스탯이 모자라면 핀 없이 안내만
+            local keys = CraftKeys(dd.slotKey)
+            local pin = MakeCraftPin(self.itemId, keys)
+            if not pin then
+                -- 스탯이 모자라면 안내. 스탯은 충분한데 nil이면 아이템 정보 로딩 중(EnsureItem 요청됨) — 다시 클릭하면 된다
+                local info = CraftInfo(self.itemId)
+                dd.craftWarn = info and #keys < (info.n or 0) or nil
+                RenderDropdown(dd)
+                dd:Show()
+                return
+            end
+            panel.pinnedItems[dd.slotKey] = pin
+            panel.pinnedConv[dd.slotKey] = nil
+            panel.pinnedTracks[dd.slotKey] = nil -- 제작템은 강화 트랙 밖
         elseif self.link then
             -- 착용템과 같은 아이템의 착용 이하 레벨 버전은 핀하지 않는다 — "유지"로 처리
             -- (카드는 숨김 규칙으로 안 뜨는데 시뮬에만 저레벨이 반영되던 불일치 방지)
@@ -1772,6 +2008,10 @@ end
 -- 드롭다운 내용 렌더 (탭/페이지 상태 기준)
 RenderDropdown = function(d)
     local slotKey = d.slotKey
+    -- 제작 탭 위젯은 제작 탭에서만 (아래 레이아웃에서 다시 표시)
+    d.craftLabel:Hide()
+    d.craftHint:Hide()
+    for _, b in ipairs(d.craftStatBtns) do b:Hide() end
 
     -- ── 보석 모드: 탭/트랙/맹독저주 없이 보석 후보 그리드만 ──
     if d.mode == "gem" then
@@ -1779,6 +2019,7 @@ RenderDropdown = function(d)
         d.tabBags:Hide()
         d.tabDungeon:Hide()
         d.tabRaid:Hide()
+        d.tabCraft:Hide()
         d.trackDivider:Hide()
         d.trackLabel:Hide()
         for _, b in ipairs(d.trackBtns) do b:Hide() end
@@ -1875,13 +2116,15 @@ RenderDropdown = function(d)
     d.tabBags:Show()
     d.tabDungeon:Show()
     d.tabRaid:Show()
+    d.tabCraft:Show()
 
-    -- 탭 스타일: 메타=앰버 / 가방=에메랄드 / 던전=하늘 / 레이드=보라 (출처 뱃지 색 계열)
+    -- 탭 스타일: 메타=앰버 / 가방=에메랄드 / 던전=하늘 / 레이드=보라 / 제작=파랑 (출처 뱃지 색 계열)
     local TAB_DEFS = {
         { btn = d.tabMeta, key = "meta", name = L["메타"], color = AMBER },
         { btn = d.tabBags, key = "bags", name = L["가방"], color = EMERALD },
         { btn = d.tabDungeon, key = "dungeon", name = L["던전"], color = SKY },
         { btn = d.tabRaid, key = "raid", name = L["레이드"], color = VIOLET },
+        { btn = d.tabCraft, key = "craft", name = L["제작"], color = CRAFT_BLUE },
     }
     local bc = AMBER
     for _, t in ipairs(TAB_DEFS) do
@@ -2100,6 +2343,34 @@ RenderDropdown = function(d)
                 end)
             end
         end
+    elseif d.tab == "craft" then
+        -- 시즌 전체 제작 장비 중 이 부위·내 전문화에 맞는 것. 링크 = 지금 선택한 스탯 기준 제작 링크
+        local cd = WythicPlusCraftData
+        local allow = SLOT_INVTYPE[slotKey]
+        local specIndex = GetSpecialization and GetSpecialization()
+        local mySpec = specIndex and GetSpecializationInfo and GetSpecializationInfo(specIndex)
+        local keys = CraftKeys(slotKey)
+        for itemId, info in pairs((cd and cd.items) or {}) do
+            local _, _, _, equipLoc = C_Item.GetItemInfoInstant(itemId)
+            local specOk = not (info.specs and #info.specs > 0)
+            if not specOk then
+                for _, s in ipairs(info.specs) do
+                    if s == mySpec then specOk = true break end
+                end
+            end
+            if allow and equipLoc and allow[equipLoc] and specOk and not taken[itemId] then
+                entries[#entries + 1] = {
+                    itemId = itemId, ilvl = cd.ilvl, link = CraftLink(itemId, keys),
+                    rank = MetaRankOf(panel.curSpec, slotKey, itemId, ""), craftN = info.n or 0,
+                }
+            end
+        end
+        table.sort(entries, function(a, b)
+            if (a.rank ~= nil) ~= (b.rank ~= nil) then return a.rank ~= nil end
+            if a.rank and b.rank and a.rank ~= b.rank then return a.rank < b.rank end
+            if a.craftN ~= b.craftN then return a.craftN > b.craftN end
+            return a.itemId < b.itemId
+        end)
     else
         for _, it in ipairs(ScanBagsForSlot(slotKey)) do
             if not taken[it.itemId] then
@@ -2133,7 +2404,8 @@ RenderDropdown = function(d)
         local qc = q and ITEM_QUALITY_COLORS[q]
         b.ilvl:SetText((qc and qc.hex or "|cffffffff") .. (e.ilvl or "") .. "|r")
         -- 순위 라벨은 통합 취급 범위(1~5위)만 — 던전/레이드 탭의 6위 이하 메타 순위는 표시하지 않음
-        b.sub:SetText((e.rank and e.rank <= 5) and string.format(L["|cfffbbf24%d위|r"], e.rank) or "")
+        b.sub:SetText((e.rank and e.rank <= 5) and string.format(L["|cfffbbf24%d위|r"], e.rank)
+            or (e.craftN == 0 and ("|cff9ca3af" .. L["고정"] .. "|r")) or "") -- 제작 탭: 스탯 고정 아이템 표기
         local cellRef = panel.cells[slotKey]
         local wornId = cellRef and cellRef.inv and GetInventoryItemID("player", cellRef.inv)
         -- 가방 탭은 실물 비교: 같은 ID의 다른 사본(배분·ilvl 다름)에 "착용 중" 체크를 달지 않는다(2026-09-20)
@@ -2149,6 +2421,7 @@ RenderDropdown = function(d)
             local pc = AMBER
             if pst == "dungeon" then pc = SKY
             elseif pst == "raid" then pc = VIOLET
+            elseif pst == "craft" then pc = CRAFT_BLUE
             elseif type(pin) == "table" and pst ~= "meta" then pc = EMERALD end
             b:SetBackdropBorderColor(pc[1], pc[2], pc[3], 1)
         else
@@ -2216,8 +2489,44 @@ RenderDropdown = function(d)
         y = y + 2
     else
         usedHeaders = usedHeaders + 1
-        y = SectionHeader(d, usedHeaders, y,
-            d.tab == "bags" and L["내 소지품"] or L["랭커 채용 순위"], nil)
+        if d.tab == "craft" then
+            y = SectionHeader(d, usedHeaders, y,
+                string.format(L["제작 · 최고 품질 %d"], (WythicPlusCraftData and WythicPlusCraftData.ilvl) or 0), "60a5fa")
+            -- 2차 스탯 선택 줄 + 안내문
+            d.craftLabel:ClearAllPoints()
+            d.craftLabel:SetPoint("TOPLEFT", 12, y)
+            d.craftLabel:Show()
+            y = y - 16
+            local keys = CraftKeys(slotKey)
+            local bw = (DROP_W - 24 - 3 * 4) / 4
+            for i, b in ipairs(d.craftStatBtns) do
+                local sel = false
+                for _, v in ipairs(keys) do if v == b.statKey then sel = true end end
+                local c = STAT_COLORS[b.statKey]
+                b:ClearAllPoints()
+                b:SetPoint("TOPLEFT", 12 + (i - 1) * (bw + 4), y)
+                if sel then
+                    b:SetBackdropColor(c[1], c[2], c[3], 0.45)
+                else
+                    b:SetBackdropColor(1, 1, 1, 0.07)
+                end
+                b:Show()
+            end
+            y = y - 26
+            d.craftHint:ClearAllPoints()
+            d.craftHint:SetPoint("TOPLEFT", 12, y)
+            d.craftHint:SetWidth(DROP_W - 24)
+            if d.craftWarn then
+                d.craftHint:SetText("|cfff59e0b" .. L["아이템을 고르기 전에 2차 스탯을 먼저 선택하세요 (아이템에 따라 1~2개)."] .. "|r")
+            else
+                d.craftHint:SetText(L["선택한 스탯으로 최고 품질 제작을 가정합니다. 「고정」은 스탯을 고를 수 없는 아이템입니다."])
+            end
+            d.craftHint:Show()
+            y = y - math.max(14, (d.craftHint:GetStringHeight() or 14)) - 8
+        else
+            y = SectionHeader(d, usedHeaders, y,
+                d.tab == "bags" and L["내 소지품"] or L["랭커 채용 순위"], nil)
+        end
         pages = math.max(1, math.ceil(#entries / GRID_PER_PAGE))
         if d.page > pages then d.page = pages end
         local first = (d.page - 1) * GRID_PER_PAGE
@@ -2258,6 +2567,7 @@ RenderDropdown = function(d)
             end
         end
         d.pageText:SetText(d.tab == "bags" and L["가방에 착용 가능한 아이템 없음"]
+            or (d.tab == "craft" and L["이 부위의 제작 아이템 없음"])
             or (raidFiltered and L["레이드 필터가 적용되어 있는지 확인해주세요"])
             or ((d.tab == "dungeon" or d.tab == "raid") and L["이 부위의 드랍이 없습니다 — 도감 로딩 중이면 잠시 후 다시 열어주세요"])
             or L["메타 데이터 없음"])
@@ -2822,6 +3132,8 @@ local function CreateSlotCell(parent, slot, side)
             -- 가방 핀이면 실제 소지 아이템 링크 그대로
             if self.recLink then
                 GameTooltip:SetHyperlink(WithCurrentSpec(self.recLink))
+                -- 제작 탭 핀: 2차 스탯 줄을 지정 스탯 수치로
+                if self.recCraftStats then CraftFixTooltip(self.recCraftStats) end
                 -- 마나용제 변환 가정: 어떤 소지/착용 아이템을 변환한 모습인지 명시
                 if self.recConvFrom then
                     local _, charges, cname = WythicPlus_GearCatalystInfo and WythicPlus_GearCatalystInfo()
@@ -3073,6 +3385,8 @@ local function CreateBottomCell(parent, slot, side)
             -- 가방 핀이면 실제 소지 아이템 링크 그대로
             if self.recLink then
                 GameTooltip:SetHyperlink(WithCurrentSpec(self.recLink))
+                -- 제작 탭 핀: 2차 스탯 줄을 지정 스탯 수치로
+                if self.recCraftStats then CraftFixTooltip(self.recCraftStats) end
                 -- 마나용제 변환 가정: 어떤 소지/착용 아이템을 변환한 모습인지 명시
                 if self.recConvFrom then
                     local _, charges, cname = WythicPlus_GearCatalystInfo and WythicPlus_GearCatalystInfo()
@@ -3295,7 +3609,7 @@ local function CollectBagEquips()
     if not (panel and panel.cells and panel.lastView) then return list end
     for key, cell in pairs(panel.cells) do
         local v = panel.lastView[key]
-        if v and v.itemId and v.bagLink and not v.convFrom and cell.inv then
+        if v and v.itemId and v.bagLink and not v.convFrom and not v.craft and cell.inv then
             local worn = GetInventoryItemLink("player", cell.inv)
             if worn ~= v.bagLink then
                 list[#list + 1] = { link = v.bagLink, inv = cell.inv, key = key }
@@ -4599,7 +4913,8 @@ local function Redraw(animate)
             local pwl = pc and pc.inv and GetInventoryItemLink("player", pc.inv)
             if pwl then
                 local stale
-                if v.srcTab == "bags" then
+                if v.srcTab == "bags" or v.srcTab == "craft" then
+                    -- 제작 핀도 실물 기준: 같은 제작템을 다른 스탯으로 재제작하는 가정이면 유지
                     stale = PinIsWornInstance(v, pwl)
                 else
                     stale = C_Item.GetItemInfoInstant(pwl) == v.item_id
@@ -5034,6 +5349,10 @@ local function Redraw(animate)
                 if type(pin) == "table" then
                     recInfo = { itemId = pin.item_id, bagLink = pin.link, bagIlvl = pin.ilvl, srcTab = pin.srcTab,
                         pinConv = panel.pinnedConv[key] } -- 프리셋 복원 메타 핀의 변형 유지
+                    if pin.srcTab == "craft" then -- 제작 탭 핀: 칩 "제작 · 지정 스탯", 툴팁 스탯 보정
+                        recInfo.craftStats = pin.stats
+                        recInfo.craftLabel = CraftLabel(pin)
+                    end
                 else
                     recInfo = { itemId = pin, pinConv = panel.pinnedConv[key] }
                 end
@@ -5166,6 +5485,7 @@ local function Redraw(animate)
             itemId = recInfo.itemId, bagLink = recInfo.bagLink, ilvl = recInfo.ilvl, convFrom = recInfo.convFrom,
             bonuses = recInfo.bonuses, conv = recInfo.conv, ench = recInfo.ench, enchItemId = recInfo.enchItemId,
             gemId = recInfo.gemId, gemNone = recInfo.gemNone,
+            craft = (recInfo.srcTab == "craft") or nil, -- 제작 가정(미보유) — 일괄 착용 대상 아님
         } or nil
         if key == "MAIN_HAND" or key == "OFF_HAND" then
             FillBottomCell(cell, slotsByKey[key], recInfo, animate)

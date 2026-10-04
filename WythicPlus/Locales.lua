@@ -179,6 +179,18 @@ L["|cff%s장비 %+d|r"] = "|cff%sGear %+d|r"
 L["|cff%s보석 %+d|r"] = "|cff%sGems %+d|r"
 L["%s · 상위 랭커 표본 %d명 · 데이터 %s · |cff00ccffwythic.com|r"] = "%s · Top ranker sample: %d · Data %s · |cff00ccffwythic.com|r"
 
+-- ── 제작 탭 (시즌 전체 제작 장비, 유저 지정 2차 스탯) ──
+L["제작 · 최고 품질 %d"] = "Crafted · max quality %d"
+L["2차 스탯 선택"] = "Secondary stats"
+L["치명"] = "Crit"
+L["유연"] = "Vers"
+L["고정"] = "Fixed"
+L["선택한 스탯으로 최고 품질 제작을 가정합니다. 「고정」은 스탯을 고를 수 없는 아이템입니다."] = "Assumes a max-quality craft with the stats you pick. \"Fixed\" items have no stat choice."
+L["아이템을 고르기 전에 2차 스탯을 먼저 선택하세요 (아이템에 따라 1~2개)."] = "Pick the secondary stats before choosing an item (1-2 depending on the item)."
+L["이 부위의 제작 아이템 없음"] = "No crafted items for this slot"
+L["제작 가정 — 최고 품질 %d, 선택한 2차 스탯 기준"] = "Crafted (assumed) — max quality %d, with the selected secondary stats"
+L["2차 스탯 %d개를 선택하면 수치가 표시됩니다"] = "Select %d secondary stat(s) to see the numbers"
+
 L["Ctrl+C로 복사 · Esc로 닫기"] = "Ctrl+C to copy · Esc to close"
 
 -- ── Raidbots (SimC 프로필) ──

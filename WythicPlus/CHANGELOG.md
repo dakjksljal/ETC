@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Crafted tab in the item picker.** A fifth tab lists every crafted item of the season that fits the slot and your specialization (98 items, collected from Wowhead by `tools/build-craft-data.py` into `WythicPlusCraftData.lua`). Pick the secondary stats with the four stat buttons (up to two; items with one stat choice use the first, "Fixed" items have no choice), then click an item: it is pinned at max crafting quality (331) with that item level's secondary budget split evenly over your stats, and the optimizer re-optimizes the other slots around it like any pin. Changing the stat buttons updates a crafted pin in place. Bonus IDs (embellishment included) follow the rankers' copy of the same item when one exists. Card chip reads "Crafted · Crit/Haste", tooltips show the chosen stats, the SimC export carries `crafted_stats`, and "Equip all bag picks" skips crafted pins (you don't own them yet)
+- The picker tabs are 46px wide (was 58px) so the fifth tab fits
+
 ## v1.6.45 (2026-09-26)
 
 ### Fixed
