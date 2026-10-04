@@ -1,0 +1,23 @@
+## Interface: 120100
+## Title: Wythic+
+## Notes: 로그인 시 전투 로그 활성화 도우미 (WCL 로깅용)
+## Notes-enUS: Combat log activation helper for WCL logging
+## Author: Wythic
+## Version: v1.6.54
+## SavedVariables: WythicPlusDB
+## OptionalDeps: EllesmereUI
+## IconTexture: Interface\AddOns\WythicPlus\Textures\icon
+## X-Website: https://wythic.com
+## X-Credits: Raidbots logo (c) Seriallos - integration shortcut, not affiliated. Class background art (c) Blizzard Entertainment (official armory renders).
+## X-Category: Combat
+## X-Curse-Project-ID: 1554738
+## X-Wago-ID: v633nl6b
+
+Locales.lua
+WythicPlus.lua
+WythicPlusLeagueData.lua
+WythicPlusLeague.lua
+WythicPlusGearData.lua
+WythicPlusGearCore.lua
+WythicPlusGearDiag.lua
+WythicPlusGear.lua
