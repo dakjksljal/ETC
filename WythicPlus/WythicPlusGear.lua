@@ -2478,6 +2478,9 @@ RenderDropdown = function(d)
 
     -- ── 보석 모드: 탭/트랙/맹독저주 없이 보석 후보 그리드만 ──
     if d.mode == "gem" then
+        -- 아이템 모드가 남긴 섹션 제목·추가 그리드 칸 정리 (제작 탭 제목이 보석 아이콘 위에 겹치던 문제)
+        for _, h in ipairs(d.secHeaders or {}) do h.div:Hide(); h.fs:Hide() end
+        for i = GRID_PER_PAGE + 1, #d.grid do d.grid[i]:Hide() end
         d.tabMeta:Hide()
         d.tabBags:Hide()
         d.tabDungeon:Hide()
@@ -4135,7 +4138,17 @@ local function QueueRedraw()
     redrawQueued = true
     C_Timer.After(0.1, function()
         redrawQueued = false
-        if panel and panel:IsShown() and panel.Redraw then panel.Redraw() end
+        if panel and panel:IsShown() and panel.Redraw then
+            -- 배경 재드로우(아이템 정보 수신·장비 변경)는 유저 조작이 아니므로 열려 있던 선택창을 유지한다.
+            -- Redraw가 선택창을 닫기 때문에, 아이콘 로딩 응답이 올 때마다 선택창이 깜빡이며 사라졌다.
+            local d = panel.dropdown
+            local keepOpen = d and d:IsShown()
+            panel.Redraw()
+            if keepOpen and RenderDropdown then
+                RenderDropdown(d)
+                d:Show()
+            end
+        end
     end)
 end
 
