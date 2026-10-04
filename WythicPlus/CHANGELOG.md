@@ -10,6 +10,7 @@
   - Enchants: clicking a card's enchant line now opens an enchant picker (it used to open the gem picker). Every enchant of the season is listed at max rank; flat secondary-stat enchants (the ring enchants) are scored as the difference from the enchant you wear now, other effects (procs, primary or tertiary stats) are selectable but not scored. Without a choice the worn enchant is assumed to carry over. Choices are saved in presets and exported to SimC (`enchant_id`, gems for picked items)
   - Embellishments (Crafted tab only, since only crafted gear can be embellished): "Meta pick" (default), "None" or any of the season's embellishments that fit the item; the link, tooltip and SimC export follow the choice, the effect itself is not scored. Fixed-stat crafted items keep their built-in embellishment
   - A warning appears under the header when the shown setup has 3 or more embellished items
+  - The Crafted tab has Gem and Enchant rows under the Embellishment row, so everything can be chosen in one place (the card lines still work too). The Gem row needs a picked item, or a socket on the item you wear
 
 ## v1.6.45 (2026-09-26)
 

@@ -209,6 +209,9 @@ L["계산 반영: %s (최고 등급, 착용 마부와의 차이만큼)"] = "Scor
 L["계산 제외 — 발동형·주 스탯·3차 스탯 효과는 메타 근접도에 넣지 않습니다"] = "Not scored — procs, primary and tertiary stats are not part of the meta distance"
 L[" (유지)"] = " (kept)"
 L["✧ 마법부여 선택"] = "✧ Choose enchant"
+L["마부"] = "Enchant"
+L["아이템을 먼저 고르세요"] = "Pick an item first"
+L["자동 (추천 보석)"] = "Auto (recommended)"
 
 L["Ctrl+C로 복사 · Esc로 닫기"] = "Ctrl+C to copy · Esc to close"
 

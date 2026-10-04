@@ -1835,11 +1835,41 @@ local function EnsureDropdown()
     d.backBtn:SetScript("OnClick", function()
         d.mode = "item"
         d.tab = "craft"
+        d.fromCraft = nil
         d.page = 1
         RenderDropdown(d)
         d:Show()
     end)
     d.embLabel:Hide(); d.embBtn:Hide(); d.backBtn:Hide()
+
+    -- 제작 탭: 보석·마부 줄 — 누르면 보석/마법부여 목록(gem/ench 모드)으로 바뀌고 「◀ 제작 탭」으로 돌아온다
+    local function CraftRow(labelText, mode)
+        local lbl = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        lbl:SetText(labelText)
+        local btn = CreateFrame("Button", nil, d, "BackdropTemplate")
+        btn:SetSize(DROP_W - 24 - 40, 20)
+        btn:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+        btn:SetBackdropColor(1, 1, 1, 0.07)
+        btn.label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btn.label:SetPoint("LEFT", 8, 0)
+        btn.label:SetPoint("RIGHT", -8, 0)
+        btn.label:SetJustifyH("LEFT")
+        btn.label:SetWordWrap(false)
+        btn:SetScript("OnClick", function(self)
+            if self.disabled then return end
+            d.mode = mode
+            d.fromCraft = true
+            d.page = 1
+            RenderDropdown(d)
+            d:Show()
+        end)
+        btn:SetScript("OnEnter", function(self) if not self.disabled then self:SetBackdropColor(1, 1, 1, 0.14) end end)
+        btn:SetScript("OnLeave", function(self) self:SetBackdropColor(1, 1, 1, 0.07) end)
+        lbl:Hide(); btn:Hide()
+        return lbl, btn
+    end
+    d.gemRowLabel, d.gemRowBtn = CraftRow(L["보석"], "gem")
+    d.enchRowLabel, d.enchRowBtn = CraftRow(L["마부"], "ench")
 
     -- 도감 로트가 지연 로딩되면 캐시 비우고 다시 그림 (연속 이벤트는 0.5초 스로틀)
     d:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
@@ -2337,6 +2367,8 @@ RenderDropdown = function(d)
     d.embLabel:Hide()
     d.embBtn:Hide()
     d.backBtn:Hide()
+    d.gemRowLabel:Hide(); d.gemRowBtn:Hide()
+    d.enchRowLabel:Hide(); d.enchRowBtn:Hide()
 
     -- ── 마법부여 모드 / 장식 모드: 탭·트랙 없이 선택지 그리드 (보석 모드와 같은 골격) ──
     if d.mode == "ench" or d.mode == "emb" then
@@ -2451,8 +2483,8 @@ RenderDropdown = function(d)
         d.resetBtn:SetPoint("TOPLEFT", 12, y)
         d.resetBtn:SetShown(pinnedHere)
         d.backBtn:ClearAllPoints()
-        d.backBtn:SetPoint("TOPLEFT", 12, y)
-        d.backBtn:SetShown(not isEnch)
+        if pinnedHere then d.backBtn:SetPoint("LEFT", d.resetBtn, "RIGHT", 6, 0) else d.backBtn:SetPoint("TOPLEFT", 12, y) end
+        d.backBtn:SetShown(not isEnch or d.fromCraft == true)
         if pages > 1 then
             d.pageNext:ClearAllPoints()
             d.pageNext:SetPoint("TOPRIGHT", -12, y)
@@ -2471,7 +2503,7 @@ RenderDropdown = function(d)
             d.pageNext:Hide()
             if shown > 0 then d.pageText:SetText("") end
         end
-        if pinnedHere or not isEnch or pages > 1 then y = y - 26 end
+        if pinnedHere or not isEnch or d.fromCraft or pages > 1 then y = y - 26 end
         d:SetSize(DROP_W, -y + 10)
         return
     end
@@ -2563,6 +2595,9 @@ RenderDropdown = function(d)
         d.resetBtn:ClearAllPoints()
         d.resetBtn:SetPoint("TOPLEFT", 12, y)
         d.resetBtn:SetShown(pinnedHere)
+        d.backBtn:ClearAllPoints()
+        if pinnedHere then d.backBtn:SetPoint("LEFT", d.resetBtn, "RIGHT", 6, 0) else d.backBtn:SetPoint("TOPLEFT", 12, y) end
+        d.backBtn:SetShown(d.fromCraft == true)
         d.dismissBtn:Hide()
         d.lockBtn:Hide() -- 보석 모드엔 부위 잠금 버튼 없음 (아이템 드롭다운 전용)
         if pages > 1 then
@@ -2577,7 +2612,7 @@ RenderDropdown = function(d)
             d.pageNext:Hide()
             if shown > 0 then d.pageText:SetText("") end
         end
-        if pinnedHere or pages > 1 then y = y - 26 end
+        if pinnedHere or pages > 1 or d.fromCraft then y = y - 26 end
         d:SetSize(DROP_W, -y + 10)
         return
     end
@@ -2983,6 +3018,58 @@ RenderDropdown = function(d)
             d.embBtn.label:SetText(EmbName(CraftEmb(slotKey)) .. "  |cff9ca3af▾|r")
             d.embBtn:Show()
             y = y - 26
+            -- 보석 줄: 홈 가능 부위(랭커 보석 데이터가 있는 부위)만. 아이템을 고르기 전엔 착용템에 홈이 있을 때만 선택 가능
+            -- (홈 가정은 직접 고른 아이템에만 적용 — 홈 없는 착용템에 보석이 계산되지 않게)
+            local gemList = panel.effSpec and panel.effSpec.gems and panel.effSpec.gems[slotKey]
+            if gemList and #gemList > 0 then
+                local c2 = panel.cells and panel.cells[slotKey]
+                local wl3 = c2 and c2.inv and GetInventoryItemLink("player", c2.inv)
+                local sockets = wl3 and WythicPlus_GearSocketCount and WythicPlus_GearSocketCount(wl3) or 0
+                local canGem = panel.pinnedItems[slotKey] ~= nil or (sockets or 0) > 0
+                local gp = panel.pinnedGems[slotKey]
+                local gtxt
+                if not canGem then
+                    gtxt = "|cff6b7280" .. L["아이템을 먼저 고르세요"] .. "|r"
+                elseif gp == 0 then
+                    gtxt = L["보석 해제"]
+                elseif gp then
+                    EnsureItem(gp)
+                    gtxt = C_Item.GetItemNameByID(gp) or (L["보석"] .. " " .. gp)
+                else
+                    gtxt = L["자동 (추천 보석)"]
+                end
+                d.gemRowLabel:ClearAllPoints()
+                d.gemRowLabel:SetPoint("TOPLEFT", 12, y - 4)
+                d.gemRowLabel:Show()
+                d.gemRowBtn:ClearAllPoints()
+                d.gemRowBtn:SetPoint("TOPRIGHT", -12, y)
+                d.gemRowBtn.disabled = not canGem
+                d.gemRowBtn:SetAlpha(canGem and 1 or 0.6)
+                d.gemRowBtn.label:SetText(gtxt .. (canGem and "  |cff9ca3af▾|r" or ""))
+                d.gemRowBtn:Show()
+                y = y - 26
+            end
+            -- 마부 줄: 고른 마부 → 착용 마부(유지)
+            if #EnchantsForSlot(slotKey) > 0 then
+                local pe2 = EnchantByName(panel.pinnedEnchants[slotKey])
+                local etxt
+                if pe2 then
+                    EnsureItem(pe2.item2)
+                    etxt = EnchantShortName(pe2)
+                else
+                    local wid = WornEnchantId(slotKey)
+                    local wn = wid and (WythicPlusGearData.enchantNames or {})[wid]
+                    etxt = wn and (EnchantName(wn) .. L[" (유지)"]) or L["없음"]
+                end
+                d.enchRowLabel:ClearAllPoints()
+                d.enchRowLabel:SetPoint("TOPLEFT", 12, y - 4)
+                d.enchRowLabel:Show()
+                d.enchRowBtn:ClearAllPoints()
+                d.enchRowBtn:SetPoint("TOPRIGHT", -12, y)
+                d.enchRowBtn.label:SetText(etxt .. "  |cff9ca3af▾|r")
+                d.enchRowBtn:Show()
+                y = y - 26
+            end
             d.craftHint:ClearAllPoints()
             d.craftHint:SetPoint("TOPLEFT", 12, y)
             d.craftHint:SetWidth(DROP_W - 24)
@@ -3454,6 +3541,7 @@ end
 ShowGemDropdown = function(slotKey, anchorFrame)
     if not (panel and panel.effSpec) then return end
     local d = EnsureDropdown()
+    d.fromCraft = nil
     if d:IsShown() and d.slotKey == slotKey and d.mode == "gem" then d:Hide() return end
     d.mode = "gem"
     d.slotKey = slotKey
@@ -3467,6 +3555,7 @@ end
 ShowEnchantDropdown = function(slotKey, anchorFrame)
     if not (panel and panel.effSpec) then return end
     local d = EnsureDropdown()
+    d.fromCraft = nil
     if d:IsShown() and d.slotKey == slotKey and d.mode == "ench" then d:Hide() return end
     d.mode = "ench"
     d.slotKey = slotKey
