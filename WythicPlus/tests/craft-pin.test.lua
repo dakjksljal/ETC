@@ -1,5 +1,5 @@
 -- 스모크 테스트: 제작 탭 데이터·링크·수치 (node fengari 러너 또는 luajit tests/craft-pin.test.lua)
--- WythicPlusGear.lua 의 ApplyEmbellish / CraftLink / CraftStats / EmbApplies / EnchantStatsById 를 미러링한다 (WoW API 의존 → 스텁).
+-- WythicPlusGear.lua 의 CraftTrackBonuses / ApplyEmbellish / CraftLink / CraftStats / EmbApplies / EnchantStatsById 를 미러링한다 (WoW API 의존 → 스텁).
 -- ⚠️ 아래 두 함수는 원본과 로직이 일치해야 한다 (변경 시 함께 갱신).
 -- 규칙: 제작템 2차 스탯은 유저가 고른다(아이템마다 1~2개, 0 = 고정). 링크 modifier 29/30 = 제작 스탯 1/2(ITEM_MOD 스탯 ID).
 -- 수치 = 최고 품질 ilvl의 2차 스탯 예산(툴팁 자리표시자 합)을 지정 스탯에 균등 배분.
@@ -58,11 +58,26 @@ local function ApplyEmbellish(bonuses, emb)
     end
     return table.concat(kept, ":")
 end
-local function CraftLink(itemId, keys, emb)
+local CRAFT_QUALITY = { [12493] = true, [12494] = true, [12495] = true, [12496] = true, [12497] = true }
+local CRAFT_CREST = { [13835] = true, [13836] = true }
+local CRAFT_TRACK_ADD = { Veteran = {}, Champion = { "12497" }, Hero = { "12497", "13835" }, Myth = { "12497", "13836" } }
+local function CraftTrackBonuses(bonuses, track)
+    local add = CRAFT_TRACK_ADD[track]
+    if not add then return bonuses end
+    local kept = {}
+    for b in bonuses:gmatch("[^:]+") do
+        local n = tonumber(b)
+        if not (CRAFT_QUALITY[n] or CRAFT_CREST[n]) then kept[#kept + 1] = b end
+    end
+    for _, b in ipairs(add) do kept[#kept + 1] = b end
+    return table.concat(kept, ":")
+end
+local function CraftLink(itemId, keys, emb, track)
     local info = CraftInfo(itemId)
     if not info then return nil end
     local bonuses = CraftBonuses(itemId)
     if (info.n or 0) > 0 then bonuses = ApplyEmbellish(bonuses, emb) end
+    if track and track ~= "Myth" then bonuses = CraftTrackBonuses(bonuses, track) end
     local nb = 1 + select(2, bonuses:gsub(":", ""))
     local mods = {}
     for i = 1, math.min(info.n or 0, 2) do
@@ -258,6 +273,25 @@ check("모르는 마부 → 0", next(EnchantStatsById(1234)) == nil)
 -- 핀 차분 = 새 마부 - 착용 마부 (예: 착용 자연의 격노 치명 29 → 탈라시안 가속 24)
 local new, old = th.s2, EnchantStatsById(7997)
 check("마부 교체 차분: 가속 +24 / 치명 -29", (new.haste or 0) - (old.haste or 0) == 24 and (new.crit or 0) - (old.crit or 0) == -29)
+
+-- ── 제작템 템렙 (와우헤드 실측: 5등급+신화 문장 331, +영웅 문장 318, 5등급만 305, 없음 292) ──
+local function bonusSet(link) local t = {} for _, b in ipairs(parse(link).bonuses) do t[b] = true end return t end
+META_BONUS[MARCH] = nil
+local myth = bonusSet(CraftLink(MARCH, { "haste", "versatility" }, nil, "Myth"))
+check("템렙 신화: 데이터 기본(12497+13836)", myth["12497"] and myth["13836"] and not myth["13835"])
+local hero = bonusSet(CraftLink(MARCH, { "haste", "versatility" }, nil, "Hero"))
+check("템렙 영웅: 12497+13835, 13836 없음", hero["12497"] and hero["13835"] and not hero["13836"])
+local champ = bonusSet(CraftLink(MARCH, { "haste", "versatility" }, nil, "Champion"))
+check("템렙 챔피언: 12497만, 문장 없음", champ["12497"] and not champ["13835"] and not champ["13836"])
+local vet = bonusSet(CraftLink(MARCH, { "haste", "versatility" }, nil, "Veteran"))
+check("템렙 노련가: 품질·문장 없음", not vet["12497"] and not vet["13835"] and not vet["13836"])
+check("템렙 바꿔도 다른 보너스 유지", hero["12214"] and hero["13667"] and hero["13751"] and hero["14001"])
+check("템렙 바꿔도 스탯 modifier 유지", parse(CraftLink(MARCH, { "haste", "versatility" }, nil, "Hero")).mods["29"] == "36")
+-- 장식 + 템렙 동시
+local both = bonusSet(CraftLink(MARCH, { "haste", "versatility" }, 12385, "Hero"))
+check("장식+영웅: 8960·12385·13835 모두", both["8960"] and both["12385"] and both["13835"] and not both["13836"])
+-- 다른 품질 등급이 섞인 메타 보너스도 5등급으로 정리
+check("품질 1~4등급 보너스 제거 후 5등급", CraftTrackBonuses("12214:12494:13751:13836", "Hero") == "12214:13751:12497:13835")
 
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

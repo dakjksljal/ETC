@@ -1,4 +1,5 @@
 local L = WythicPlusL -- 로케일 테이블 (Locales.lua, koKR은 원문 그대로)
+local X = {} -- 제작 탭·보석/마부/장식·템렙 확장 헬퍼 (메인 청크 local 200개 한도 때문에 한 테이블에 모음)
 local IS_KO = GetLocale() == "koKR" -- 서버 동봉 사전(ko|en 병기)에서 이름 선택용
 -- Wythic+ 장비 최적화 — 아머리 (웹 CharacterProfile.tsx 렌더 코드 기준 이식)
 -- 웹 정본 스펙:
@@ -40,7 +41,7 @@ local EMERALD = { 0.204, 0.827, 0.6 } -- #34d399 (가방/소지품 계열)
 local SKY = { 0.22, 0.74, 0.97 } -- 던전 탭 계열
 local VIOLET = { 0.75, 0.52, 0.99 } -- 레이드 탭 계열
 local TEAL = { 0.176, 0.831, 0.749 } -- #2dd4bf (마나용제 변환 가정 계열, 웹 catalyst 색)
-local CRAFT_BLUE = { 0.376, 0.647, 0.980 } -- #60a5fa (제작 탭 계열 — 출처 칩 "제작"과 같은 색)
+X.CRAFT_BLUE = { 0.376, 0.647, 0.980 } -- #60a5fa (제작 탭 계열 — 출처 칩 "제작"과 같은 색)
 local RING_BG = { 0.153, 0.153, 0.165 } -- #27272a
 
 local ROW_H = 52
@@ -62,7 +63,7 @@ end
 
 -- 패널·스킨 상태 (파일 전역 — 아래 모든 함수가 업밸류로 참조하므로 최상단에 선언)
 local panel
-local ShowEnchantDropdown -- 마법부여 선택 드롭다운 (드롭다운 모듈에서 할당 — 카드 마부 줄 클릭이 참조)
+X.ShowEnchantDropdown = nil -- 마법부여 선택 드롭다운 (드롭다운 모듈에서 할당 — 카드 마부 줄 클릭이 참조)
 -- 커스텀 초기화(모드/필터 전환) 시 잠긴 슬롯의 핀은 보존 — 잠금 = 사용자가 확정한 선택.
 -- ⚠️ 핸들러 클로저들이 참조하므로 반드시 패널 생성 코드보다 먼저(파일 레벨) 정의할 것.
 local function WipeCustomKeepLocked()
@@ -79,6 +80,9 @@ local function WipeCustomKeepLocked()
     end
     for k in pairs(panel.pinnedEnchants) do
         if not panel.lockedSlots[k] then panel.pinnedEnchants[k] = nil end
+    end
+    for k in pairs(panel.pinnedGems2) do
+        if not panel.lockedSlots[k] then panel.pinnedGems2[k] = nil end
     end
     for k in pairs(panel.pinnedTracks) do
         if not panel.lockedSlots[k] then panel.pinnedTracks[k] = nil end
@@ -254,8 +258,8 @@ local function AttachRecSub(rec, isLeft)
         f:SetScript("OnMouseDown", function(self)
             local r = self:GetParent() -- rec
             -- 마부 줄 = 마법부여 선택, 보석 줄 = 보석 선택
-            if self.isEnch and r.slotKey and ShowEnchantDropdown then
-                ShowEnchantDropdown(r.slotKey, self)
+            if self.isEnch and r.slotKey and X.ShowEnchantDropdown then
+                X.ShowEnchantDropdown(r.slotKey, self)
             elseif r.slotKey and ShowGemDropdown then
                 ShowGemDropdown(r.slotKey, self)
             end
@@ -433,7 +437,7 @@ local function SetRec(rec, recInfo, animate)
         if recInfo.convFrom then rc = TEAL
         elseif st == "dungeon" then rc = SKY
         elseif st == "raid" then rc = VIOLET
-        elseif st == "craft" then rc = CRAFT_BLUE
+        elseif st == "craft" then rc = X.CRAFT_BLUE
         elseif recInfo.bagLink and st ~= "meta" then rc = EMERALD end
         rec.iconBorder:SetVertexColor(rc[1], rc[2], rc[3], 1)
         rec.arrow:SetVertexColor(rc[1], rc[2], rc[3])
@@ -479,6 +483,12 @@ local function SetRec(rec, recInfo, animate)
         local gq = C_Item.GetItemQualityByID(recInfo.gemId)
         local gqc = gq and ITEM_QUALITY_COLORS[gq]
         gemTxt = (gicon and ("|T" .. gicon .. ":14:14|t ") or "") .. (gqc and gqc.hex or "|cffffffff") .. gname .. "|r"
+        if recInfo.gemId2 then -- 두 번째 보석 칸 (유저 선택)
+            EnsureItem(recInfo.gemId2)
+            local g2 = C_Item.GetItemNameByID(recInfo.gemId2) or L["보석"]
+            local g2i = C_Item.GetItemIconByID(recInfo.gemId2)
+            gemTxt = gemTxt .. " + " .. (g2i and ("|T" .. g2i .. ":14:14|t ") or "") .. g2
+        end
     elseif recInfo.gemEmpty or recInfo.gemNone then
         -- 빈 소켓 (웹의 점선 다이아 자국) — 상태 표시 "빈 홈"(지시형 "보석 선택"은 빼라는 듯 읽혔음, 2026-09-12).
         -- 클릭하면 보석 선택창. 보석 해제 핀도 같은 표시
@@ -1198,15 +1208,15 @@ end
 -- 제작템의 2차 스탯은 제작할 때 유저가 고른다(아이템마다 1~2개, 0 = 스탯 고정 아이템). 링크에선 modifier 29/30
 -- (제작 스탯 1/2 = ITEM_MOD 스탯 ID)로 표현된다. 템렙은 최고 품질 고정(데이터 ilvl). 수치 = 그 ilvl의 2차 스탯
 -- 예산을 지정 스탯에 균등 배분. 핀(srcTab "craft")으로 들어가 엔진이 나머지 부위를 재최적화한다.
-local function CraftInfo(itemId)
+function X.CraftInfo(itemId)
     local cd = WythicPlusCraftData
     return cd and cd.items and itemId and cd.items[itemId] or nil
 end
 
 -- 최고 품질 보너스ID: 랭커가 최고 품질로 착용한 같은 아이템이 있으면 그 보너스(장식 포함 — 메타 픽),
 -- 없으면 데이터 템플릿(양손/원거리 무기는 별도). 현재 스펙 데이터 우선, 없으면 전체 스펙에서 찾는다.
-local craftMetaBonus -- itemId → bonuses (전체 스펙, 1회 구성)
-local function CraftBonuses(itemId)
+X._craftMetaBonus = nil -- itemId → bonuses (전체 스펙, 1회 구성)
+function X.CraftBonuses(itemId)
     local cd = WythicPlusCraftData
     local function find(items)
         for _, list in pairs(items or {}) do
@@ -1219,27 +1229,27 @@ local function CraftBonuses(itemId)
     end
     local b = panel and panel.curSpec and find(panel.curSpec.items)
     if b then return b end
-    if not craftMetaBonus then
-        craftMetaBonus = {}
+    if not X._craftMetaBonus then
+        X._craftMetaBonus = {}
         for _, sp in pairs(WythicPlusGearData.specs or {}) do
             for _, list in pairs(sp.items or {}) do
                 for i = 1, #list do
                     local e = list[i]
-                    if craftMetaBonus[e[1]] == nil and CraftInfo(e[1]) and e[3] == cd.ilvl and e[11] and e[11] ~= "" then
-                        craftMetaBonus[e[1]] = e[11]
+                    if X._craftMetaBonus[e[1]] == nil and X.CraftInfo(e[1]) and e[3] == cd.ilvl and e[11] and e[11] ~= "" then
+                        X._craftMetaBonus[e[1]] = e[11]
                     end
                 end
             end
         end
     end
-    if craftMetaBonus[itemId] then return craftMetaBonus[itemId] end
-    local info = CraftInfo(itemId)
+    if X._craftMetaBonus[itemId] then return X._craftMetaBonus[itemId] end
+    local info = X.CraftInfo(itemId)
     return (info and cd.twoHandInv and cd.twoHandInv[info.inv]) and cd.bonus.twoHand or cd.bonus.std
 end
 
 -- 장식 교체: 보너스에서 장식 표지(8960 등)·장식 효과 ID를 걷어내고, emb(보너스 ID)가 있으면 "8960:<ID>"를 붙인다.
 -- emb = nil → 메타 픽 그대로(보너스 무변경), 0 → 장식 없음
-local function ApplyEmbellish(bonuses, emb)
+function X.ApplyEmbellish(bonuses, emb)
     if emb == nil then return bonuses end
     local cd = WythicPlusCraftData
     local kept = {}
@@ -1258,12 +1268,37 @@ end
 
 -- 제작 링크: 최고 품질 보너스 + 제작 스탯 modifier(29 = 스탯1, 30 = 스탯2). keys = 지정 스탯(순서 = 스탯1, 스탯2)
 -- emb = 장식 선택(nil 메타 픽 / 0 없음 / 보너스 ID). 스탯 고정형(n = 0)은 장식이 아이템에 내장돼 있어 무시
-local function CraftLink(itemId, keys, emb)
+-- 제작템 템렙: 품질 보너스(12493~12497 = 1~5등급)·문장 보너스(13835 영웅 / 13836 신화)로 정해진다(와우헤드 툴팁 실측):
+-- 5등급만 = 305(챔피언), 5등급+영웅 문장 = 318, 5등급+신화 문장 = 331, 둘 다 없음 = 292(노련가). = 각 트랙 최대 - 3
+X.CRAFT_QUALITY = { [12493] = true, [12494] = true, [12495] = true, [12496] = true, [12497] = true }
+X.CRAFT_CREST = { [13835] = true, [13836] = true }
+X.CRAFT_TRACK_ADD = { Veteran = {}, Champion = { "12497" }, Hero = { "12497", "13835" }, Myth = { "12497", "13836" } }
+function X.IsCraftedBonuses(bonuses)
+    for b in tostring(bonuses or ""):gmatch("[^:/]+") do
+        local n = tonumber(b)
+        if X.CRAFT_QUALITY[n] or X.CRAFT_CREST[n] then return true end
+    end
+    return false
+end
+function X.CraftTrackBonuses(bonuses, track)
+    local add = X.CRAFT_TRACK_ADD[track]
+    if not add then return bonuses end
+    local kept = {}
+    for b in bonuses:gmatch("[^:]+") do
+        local n = tonumber(b)
+        if not (X.CRAFT_QUALITY[n] or X.CRAFT_CREST[n]) then kept[#kept + 1] = b end
+    end
+    for _, b in ipairs(add) do kept[#kept + 1] = b end
+    return table.concat(kept, ":")
+end
+
+function X.CraftLink(itemId, keys, emb, track)
     local cd = WythicPlusCraftData
-    local info = CraftInfo(itemId)
+    local info = X.CraftInfo(itemId)
     if not info then return nil end
-    local bonuses = CraftBonuses(itemId)
-    if (info.n or 0) > 0 then bonuses = ApplyEmbellish(bonuses, emb) end
+    local bonuses = X.CraftBonuses(itemId)
+    if (info.n or 0) > 0 then bonuses = X.ApplyEmbellish(bonuses, emb) end
+    if track and track ~= "Myth" then bonuses = X.CraftTrackBonuses(bonuses, track) end -- 신화 = 데이터 기본(331)
     local nb = 1 + select(2, bonuses:gsub(":", ""))
     local mods = {}
     for i = 1, math.min(info.n or 0, 2) do
@@ -1276,8 +1311,8 @@ end
 
 -- 제작 핀 수치: 스탯 고정 아이템은 링크 그대로, 선택형은 그 ilvl의 2차 스탯 예산(게임 툴팁의 자리표시자 합)을
 -- 지정 스탯에 균등 배분. 지정 스탯이 모자라거나 아이템 정보가 아직 없으면 nil
-local function CraftStats(itemId, link, keys)
-    local info = CraftInfo(itemId)
+function X.CraftStats(itemId, link, keys)
+    local info = X.CraftInfo(itemId)
     if not (info and link) then return nil end
     local n = info.n or 0
     local st = (WythicPlus_GearLinkStats and WythicPlus_GearLinkStats(link)) or {}
@@ -1301,41 +1336,42 @@ local function CraftStats(itemId, link, keys)
 end
 
 -- 제작 탭 선택 스탯 (부위별, 세션 유지)
-local function CraftKeys(slotKey)
+function X.CraftKeys(slotKey)
     panel.craftStats = panel.craftStats or {}
     panel.craftStats[slotKey] = panel.craftStats[slotKey] or {}
     return panel.craftStats[slotKey]
 end
 
-local CRAFT_SHORT = { crit = L["치명"], haste = L["가속"], mastery = L["특화"], versatility = L["유연"] }
+X.CRAFT_SHORT = { crit = L["치명"], haste = L["가속"], mastery = L["특화"], versatility = L["유연"] }
 
--- 제작 핀 생성 (스탯 미지정·정보 미로딩이면 nil). ilvl은 최고 품질 고정. emb = 장식 선택(CraftLink 참고)
-local function MakeCraftPin(itemId, keys, emb)
-    local info = CraftInfo(itemId)
+-- 제작 핀 생성 (스탯 미지정·정보 미로딩이면 nil). ilvl은 최고 품질 고정. emb = 장식 선택(X.CraftLink 참고)
+function X.MakeCraftPin(itemId, keys, emb, track)
+    local info = X.CraftInfo(itemId)
     if not info then return nil end
-    local link = CraftLink(itemId, keys, emb)
-    local st = CraftStats(itemId, link, keys)
+    local link = X.CraftLink(itemId, keys, emb, track)
+    local st = X.CraftStats(itemId, link, keys)
     if not st then
         EnsureItem(itemId)
         return nil
     end
-    return { item_id = itemId, link = link, ilvl = WythicPlusCraftData.ilvl, stats = st, srcTab = "craft" }
+    return { item_id = itemId, link = link, ilvl = (track and TrackMaxIlvl(track, true)) or WythicPlusCraftData.ilvl,
+        stats = st, srcTab = "craft" }
 end
 
 -- 카드 칩 라벨: "제작 · 치명/가속" (스탯 고정 아이템은 "제작")
-local function CraftLabel(pin)
-    local info = CraftInfo(pin.item_id)
+function X.CraftLabel(pin)
+    local info = X.CraftInfo(pin.item_id)
     local parts = {}
     if info and (info.n or 0) > 0 then
         for _, k in ipairs(STAT_ORDER) do
-            if (pin.stats and pin.stats[k] or 0) > 0 then parts[#parts + 1] = CRAFT_SHORT[k] end
+            if (pin.stats and pin.stats[k] or 0) > 0 then parts[#parts + 1] = X.CRAFT_SHORT[k] end
         end
     end
     return #parts > 0 and (L["제작"] .. " · " .. table.concat(parts, "/")) or L["제작"]
 end
 
 -- 제작 링크 툴팁 직후 호출: 게임이 그린 2차 스탯 줄(자리표시자 포함)을 지정 스탯 수치로 덮어쓴다
-local function CraftFixTooltip(stats)
+function X.CraftFixTooltip(stats)
     if not stats then return end
     local hits, shown, _, numFirst = ScanSecondaryLines(function(i)
         local fs = _G["GameTooltipTextLeft" .. i]
@@ -1369,7 +1405,7 @@ local function CraftFixTooltip(stats)
 end
 
 -- 이 부위·내 전문화에 맞는 제작 장비 (제작 탭 목록·장식 선택지 공용)
-local function CraftItemsForSlot(slotKey)
+function X.CraftItemsForSlot(slotKey)
     local cd = WythicPlusCraftData
     local allow = SLOT_INVTYPE[slotKey]
     local specIndex = GetSpecialization and GetSpecialization()
@@ -1389,7 +1425,7 @@ local function CraftItemsForSlot(slotKey)
 end
 
 -- ── 장식 선택 (제작 탭 전용 — 게임 규칙상 장식은 제작템에만 붙는다. 가치는 계산하지 않음) ──
-local function EmbApplies(use, info)
+function X.EmbApplies(use, info)
     local inv, cls, prof = info.inv, info.cls, info.prof
     local nonArmor = { [2] = true, [11] = true, [12] = true, [14] = true, [22] = true, [23] = true }
     local isArmor = cls == 4 and not nonArmor[inv]
@@ -1408,19 +1444,19 @@ local function EmbApplies(use, info)
 end
 
 -- 부위별 장식 선택 (nil = 메타 픽, 0 = 없음, 보너스 ID)
-local function CraftEmb(slotKey)
+function X.CraftEmb(slotKey)
     panel.craftEmb = panel.craftEmb or {}
     return panel.craftEmb[slotKey]
 end
 
 -- 이 부위 제작템 중 하나라도 쓸 수 있는 장식 (선택지 목록)
-local function EmbOptionsForSlot(slotKey)
+function X.EmbOptionsForSlot(slotKey)
     local cd = WythicPlusCraftData
-    local items = CraftItemsForSlot(slotKey)
+    local items = X.CraftItemsForSlot(slotKey)
     local out = {}
     for bid, emb in pairs((cd and cd.embellishments) or {}) do
         for _, it in ipairs(items) do
-            if (it.info.n or 0) > 0 and EmbApplies(emb.use, it.info) then
+            if (it.info.n or 0) > 0 and X.EmbApplies(emb.use, it.info) then
                 out[#out + 1] = { bid = bid, item = emb.item }
                 break
             end
@@ -1431,7 +1467,7 @@ local function EmbOptionsForSlot(slotKey)
 end
 
 -- 장식 이름(재료 아이템 이름, 클라이언트 언어)
-local function EmbName(emb)
+function X.EmbName(emb)
     if emb == nil then return L["메타 픽"] end
     if emb == 0 then return L["장식 없음"] end
     local e = WythicPlusCraftData.embellishments[emb]
@@ -1443,7 +1479,7 @@ local function EmbName(emb)
 end
 
 -- 보너스 문자열이 장식 장비인가 (장식 표지 또는 장식 효과 ID 포함)
-local function BonusesEmbellished(bonuses)
+function X.BonusesEmbellished(bonuses)
     local cd = WythicPlusCraftData
     if not (cd and bonuses and bonuses ~= "") then return false end
     for b in tostring(bonuses):gmatch("[^:/]+") do
@@ -1452,20 +1488,20 @@ local function BonusesEmbellished(bonuses)
     end
     return false
 end
-local function LinkEmbellished(link)
+function X.LinkEmbellished(link)
     local p = link and LinkSimcParts(link)
-    return p ~= nil and BonusesEmbellished(table.concat(p.bonuses, ":"))
+    return p ~= nil and X.BonusesEmbellished(table.concat(p.bonuses, ":"))
 end
 
 -- ── 마법부여 선택 (유저가 직접 고른 부위에만 — 기본값은 착용 마부 유지, 바꾸면 그 차이만 계산) ──
 -- 데이터(WythicPlusCraftData.enchants)는 최고 등급(s2) 고정 2차 스탯을 가진다. 링크용 마법부여 ID는 동봉 enchantNames의
 -- 영문 이름으로 찾는다(같은 이름의 ID가 둘이면 작은 쪽 = 1등급). 착용 마부의 스탯도 이 표로 읽는다(모르는 마부 = 0).
-local ENCH_SLOT_OF = { FINGER_1 = "FINGER", FINGER_2 = "FINGER", FEET = "FEET", CHEST = "CHEST", HEAD = "HEAD",
+X.ENCH_SLOT_OF = { FINGER_1 = "FINGER", FINGER_2 = "FINGER", FEET = "FEET", CHEST = "CHEST", HEAD = "HEAD",
     SHOULDER = "SHOULDER", LEGS = "LEGS", MAIN_HAND = "WEAPON", OFF_HAND = "WEAPON" }
-local enchIndex
-local function EnchIndex()
-    if enchIndex then return enchIndex end
-    enchIndex = { byId = {}, byName = {} }
+X._enchIndex = nil
+function X.EnchIndex()
+    if X._enchIndex then return X._enchIndex end
+    X._enchIndex = { byId = {}, byName = {} }
     local idsByName = {}
     for id, n in pairs(WythicPlusGearData.enchantNames or {}) do
         local en = n[4]
@@ -1475,32 +1511,32 @@ local function EnchIndex()
         end
     end
     for _, e in ipairs((WythicPlusCraftData and WythicPlusCraftData.enchants) or {}) do
-        enchIndex.byName[e.name] = e
+        X._enchIndex.byName[e.name] = e
         local ids = idsByName[e.name]
         if ids then
             table.sort(ids)
             e.enchId = ids[#ids] -- 링크·SimC용 (최고 등급 쪽)
-            for i, id in ipairs(ids) do enchIndex.byId[id] = { e = e, tier = (#ids >= 2 and i == 1) and 1 or 2 } end
+            for i, id in ipairs(ids) do X._enchIndex.byId[id] = { e = e, tier = (#ids >= 2 and i == 1) and 1 or 2 } end
         end
     end
-    return enchIndex
+    return X._enchIndex
 end
-local function EnchantByName(name) return name and EnchIndex().byName[name] or nil end
+function X.EnchantByName(name) return name and X.EnchIndex().byName[name] or nil end
 -- 착용(또는 링크) 마법부여 ID → 고정 2차 스탯 (모르는 마부·계산 제외 마부 = {})
-local function EnchantStatsById(id)
-    local hit = id and EnchIndex().byId[id]
+function X.EnchantStatsById(id)
+    local hit = id and X.EnchIndex().byId[id]
     if not hit then return {} end
     return (hit.tier == 1 and hit.e.s1 or hit.e.s2) or {}
 end
-local function WornEnchantId(slotKey)
+function X.WornEnchantId(slotKey)
     local c = panel.cells and panel.cells[slotKey]
     local link = c and c.inv and GetInventoryItemLink("player", c.inv)
     local e = link and tonumber(link:match("item:%d+:(%d+)") or "")
     return (e and e > 0) and e or nil
 end
 -- 이 부위에 고를 수 있는 마법부여 (보조무기는 무기일 때만)
-local function EnchantsForSlot(slotKey)
-    local want = ENCH_SLOT_OF[slotKey]
+function X.EnchantsForSlot(slotKey)
+    local want = X.ENCH_SLOT_OF[slotKey]
     if slotKey == "OFF_HAND" then
         local pin = panel.pinnedItems[slotKey]
         local id = type(pin) == "table" and pin.item_id or pin
@@ -1511,36 +1547,141 @@ local function EnchantsForSlot(slotKey)
     end
     local out = {}
     if not want then return out end
-    EnchIndex()
+    X.EnchIndex()
     for _, e in ipairs((WythicPlusCraftData and WythicPlusCraftData.enchants) or {}) do
         if e.slot == want then out[#out + 1] = e end
     end
     return out
 end
-local function EnchantShortName(e)
+function X.EnchantShortName(e)
     local nm = C_Item.GetItemNameByID(e.item2) or e.name
     return nm:match("^.-%s%-%s(.+)$") or nm -- "반지 마법부여 - 자연의 격노" → "자연의 격노"
 end
-local function EnchantStatText(st)
+function X.EnchantStatText(st)
     if not st then return nil end
     local parts = {}
     for _, k in ipairs(STAT_ORDER) do
-        if (st[k] or 0) > 0 then parts[#parts + 1] = CRAFT_SHORT[k] .. " +" .. st[k] end
+        if (st[k] or 0) > 0 then parts[#parts + 1] = X.CRAFT_SHORT[k] .. " +" .. st[k] end
     end
     return #parts > 0 and table.concat(parts, ", ") or nil
 end
--- 마부 핀의 스탯 차분 (핀 마부 - 착용 마부). 프리셋 레이팅 동결 중이면 이미 반영돼 있어 0
-local function EnchantPinDelta()
+-- ── 보석 홈·교체 판정 (유저가 직접 고른 아이템) ──
+-- 부위별 "뚫을 수 있는 홈" 최대치 = 랭커 보석 데이터의 1인당 보석 수(표본 20명 이상 스펙 중 최대)를 올림, 1~2.
+-- (목 ≈ 1.8 → 2, 반지·머리·손목·허리 ≤ 1 → 1). 랭커 보석 데이터가 없는 부위 = 0
+X._possibleSocketCache = nil
+function X.PossibleSockets(slotKey)
+    if not X._possibleSocketCache then
+        X._possibleSocketCache = {}
+        for _, sp in pairs(WythicPlusGearData.specs or {}) do
+            local n = sp.sample or 0
+            if n >= 20 then
+                for slot, list in pairs(sp.gems or {}) do
+                    local t = 0
+                    for _, g in ipairs(list) do t = t + (g[2] or 0) end
+                    if t / n > (X._possibleSocketCache[slot] or 0) then X._possibleSocketCache[slot] = t / n end
+                end
+            end
+        end
+    end
+    local r = X._possibleSocketCache[slotKey]
+    if not r then return 0 end
+    return math.min(2, math.max(1, math.ceil(r - 0.05)))
+end
+
+-- 지금 이 부위에 표시 중인 아이템의 링크 (유저 핀 → 화면 추천 → 착용)
+function X.SelectionLink(slotKey)
+    local pin = panel.pinnedItems[slotKey]
+    if type(pin) == "table" then return pin.link end
+    if pin then
+        local _, b = MetaItemInfo(panel.curSpec, slotKey, pin, panel.pinnedConv[slotKey])
+        return BuildItemLink(pin, b)
+    end
+    local v = panel.lastView and panel.lastView[slotKey]
+    if v and v.bagLink then return v.bagLink end
+    if v and v.itemId then return BuildItemLink(v.itemId, v.bonuses) end
+    local c = panel.cells and panel.cells[slotKey]
+    return c and c.inv and GetInventoryItemLink("player", c.inv) or nil
+end
+-- 실제로 뚫린 홈 수 (그 아이템 링크 기준 — 착용·가방은 실물, 새 아이템은 기본 홈)
+function X.ActualSockets(slotKey)
+    local link = X.SelectionLink(slotKey)
+    return (link and WythicPlus_GearSocketCount and WythicPlus_GearSocketCount(link)) or 0
+end
+-- 고를 수 있는 보석 칸 수 = 실제 홈과 뚫을 수 있는 홈 중 큰 쪽
+function X.GemSlots(slotKey)
+    return math.max(X.ActualSockets(slotKey), X.PossibleSockets(slotKey))
+end
+
+-- 유저가 직접 고른 아이템이 지금 착용템과 다른 실물인가 (같은 링크·같은 ID+ilvl이면 착용 그대로)
+function X.ItemSwapped(slotKey)
+    local pin = panel.pinnedItems[slotKey]
+    if pin == nil then return false end
+    local c = panel.cells and panel.cells[slotKey]
+    local wl = c and c.inv and GetInventoryItemLink("player", c.inv)
+    if not wl then return true end
+    local wid = C_Item.GetItemInfoInstant(wl)
+    if type(pin) ~= "table" then return pin ~= wid end
+    if pin.link == wl then return false end
+    return not (pin.item_id == wid and (pin.ilvl or 0) == (C_Item.GetDetailedItemLevelInfo(wl) or 0))
+end
+-- 이 부위의 아이템이 바뀌었나 (유저 교체 또는 화면의 자동 추천)
+function X.SlotItemChanged(slotKey)
+    if X.ItemSwapped(slotKey) then return true end
+    if panel.pinnedItems[slotKey] ~= nil then return false end
+    local ls = panel.lastSim
+    local r = ls and ls.slotRecommendations and ls.slotRecommendations[slotKey]
+    return type(r) == "number"
+end
+
+-- 교체한 템에 원래 붙어 있는 마부(가방 실물만) — 새 아이템(메타·제작)은 마부 없음
+function X.SwappedItemEnchant(slotKey)
+    local pin = panel.pinnedItems[slotKey]
+    if type(pin) == "table" and pin.srcTab == "bags" and pin.link then
+        local e = tonumber(pin.link:match("item:%d+:(%d+)") or "")
+        if e and e > 0 then return e end
+    end
+    return nil
+end
+
+-- 마부 차분 = (최종 마부) - (착용 마부). 최종 마부 = 고른 마부 → 교체했으면 그 템의 원래 마부(없으면 없음) → 착용 마부 유지.
+-- 템을 바꾸면 기존 템의 마부는 빠진다(보석도 엔진이 뺀다). 프리셋 레이팅 동결 중이면 이미 반영돼 있어 0
+function X.EnchantPinDelta()
     local delta = { crit = 0, haste = 0, mastery = 0, versatility = 0 }
     local any = false
     if panel.presetRatings then return delta, false end
-    for slot, name in pairs(panel.pinnedEnchants or {}) do
-        local e = EnchantByName(name)
+    local slots = {}
+    for slot in pairs(panel.pinnedEnchants or {}) do slots[slot] = true end
+    for slot in pairs(panel.pinnedItems or {}) do slots[slot] = true end
+    for slot in pairs(slots) do
+        local old = X.EnchantStatsById(X.WornEnchantId(slot))
+        local e = X.EnchantByName(panel.pinnedEnchants[slot])
+        local new
         if e then
-            local new, old = e.s2 or {}, EnchantStatsById(WornEnchantId(slot))
+            new = e.s2 or {}
+        elseif X.ItemSwapped(slot) then
+            new = X.EnchantStatsById(X.SwappedItemEnchant(slot))
+        else
+            new = old
+        end
+        for _, k in ipairs(STAT_ORDER) do
+            local d = (new[k] or 0) - (old[k] or 0)
+            if d ~= 0 then delta[k] = delta[k] + d; any = true end
+        end
+    end
+    return delta, any
+end
+
+-- 두 번째 보석 칸(유저 선택)의 스탯 합 — 첫 칸은 기존 보석 핀 경로(엔진 ApplyGemPins)가 처리
+function X.Gem2Delta()
+    local delta = { crit = 0, haste = 0, mastery = 0, versatility = 0 }
+    local any = false
+    if panel.presetRatings then return delta, false end
+    local dict = WythicPlusGearData.gemStats or {}
+    for _, gid in pairs(panel.pinnedGems2 or {}) do
+        local gs = gid ~= 0 and dict[gid]
+        if gs then
             for _, k in ipairs(STAT_ORDER) do
-                local d = (new[k] or 0) - (old[k] or 0)
-                if d ~= 0 then delta[k] = delta[k] + d; any = true end
+                if (gs[k] or 0) ~= 0 then delta[k] = delta[k] + gs[k]; any = true end
             end
         end
     end
@@ -1695,6 +1836,80 @@ local function PeakLink(itemId)
     return BuildItemLink(itemId, step)
 end
 
+-- 링크의 보너스 목록만 바꾼 새 링크 (전문화 필드는 현재로, 보너스 뒤 modifier 꼬리는 보존)
+function X.ReplaceLinkBonuses(link, newBonuses)
+    local itemString = link and link:match("item:([%-%d:]+)")
+    if not itemString then return link end
+    local f = {}
+    for v in (itemString .. ":"):gmatch("([^:]*):") do f[#f + 1] = v end
+    local n = tonumber(f[13]) or 0
+    local head = {}
+    for i = 1, 12 do head[i] = f[i] or "" end
+    head[10] = CurrentSpecID()
+    local tail = {}
+    for i = 14 + n, #f do tail[#tail + 1] = f[i] end
+    local cnt = newBonuses ~= "" and (1 + select(2, newBonuses:gsub(":", ""))) or 0
+    local out = "item:" .. table.concat(head, ":") .. ":" .. cnt .. (cnt > 0 and (":" .. newBonuses) or "")
+    if #tail > 0 then out = out .. ":" .. table.concat(tail, ":") end
+    return out
+end
+
+-- 실물 아이템(가방)을 선택한 강화 트랙 최대 템렙으로 가정한 링크. 제작템은 품질·문장 보너스로, 드랍템은 트랙 단계
+-- 보너스로 바꾼다. 상위 신화는 레이드 마지막 2보스 대상만(아니면 신화). 트랙 개념이 없는 템(맹독저주 등)은 그대로 → nil
+function X.RelinkForTrack(link, track)
+    if not (link and track) then return nil end
+    local parts = LinkSimcParts(link)
+    if not parts then return nil end
+    local bon = table.concat(parts.bonuses, ":")
+    if X.IsCraftedBonuses(bon) then
+        if track == "Peak" then track = "Myth" end
+        return X.ReplaceLinkBonuses(link, X.CraftTrackBonuses(bon, track))
+    end
+    if not HasTrackStep(bon) then return nil end
+    if track == "Peak" then
+        local pl = PeakLink(tonumber(parts.id))
+        if pl then return pl end
+        track = "Myth"
+    end
+    return EJDisplayLink(link, track)
+end
+
+-- 가방 핀이 자동으로 채운 보석(실물 보석) 정리 — 핀을 풀 때, 유저가 바꾸지 않은 칸만
+function X.ClearAutoGems(slotKey, pin)
+    if type(pin) ~= "table" or not pin.autoGems then return end
+    if panel.pinnedGems[slotKey] == pin.autoGems[1] then panel.pinnedGems[slotKey] = nil end
+    if panel.pinnedGems2[slotKey] == pin.autoGems[2] then panel.pinnedGems2[slotKey] = nil end
+end
+
+-- 제작·가방 탭의 강화 트랙 버튼: 탭 템렙을 바꾸고, 이 탭에서 고른 핀이 있으면 새 템렙으로 다시 만든다.
+-- 제작 = 기본 신화(331), 상위 신화 없음. 가방 = 기본 실제 템렙, 같은 버튼을 다시 누르면 실제 템렙으로 복귀
+function X.SetTabTrack(d, key)
+    local slot = d.slotKey
+    if d.tab == "craft" then
+        if key == "Peak" then return end
+        d.craftTrack = key
+    else
+        d.bagsTrack = (d.bagsTrack ~= key) and key or nil
+    end
+    local pin = panel.pinnedItems[slot]
+    if not (type(pin) == "table" and pin.srcTab == d.tab) then return end
+    local np
+    if d.tab == "craft" then
+        np = X.MakeCraftPin(pin.item_id, X.CraftKeys(slot), X.CraftEmb(slot), d.craftTrack)
+    else
+        local base = pin.origLink or pin.link
+        local nl = (d.bagsTrack and X.RelinkForTrack(base, d.bagsTrack)) or base
+        np = { item_id = pin.item_id, link = nl, origLink = base, srcTab = "bags", autoGems = pin.autoGems,
+            ilvl = C_Item.GetDetailedItemLevelInfo(nl) or pin.ilvl or 0,
+            stats = (WythicPlus_GearLinkStats and WythicPlus_GearLinkStats(nl)) or pin.stats }
+    end
+    if np then
+        panel.pinnedItems[slot] = np
+        panel.presetRatings = nil
+        if panel.Redraw then panel.Redraw() end
+    end
+end
+
 function WythicPlus_GearInvalidateEJLoot() -- 도감 데이터 지연 로딩 시 캐시 무효화
     wipe(EJ_CACHE.loot)
     EJ_TOP = nil
@@ -1775,10 +1990,10 @@ local function EnsureDropdown()
         b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
         b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         b.label:SetPoint("CENTER")
-        b.label:SetText(CRAFT_SHORT[k])
+        b.label:SetText(X.CRAFT_SHORT[k])
         b.statKey = k
         b:SetScript("OnClick", function(self)
-            local keys = CraftKeys(d.slotKey)
+            local keys = X.CraftKeys(d.slotKey)
             local idx
             for j, v in ipairs(keys) do if v == self.statKey then idx = j end end
             if idx then
@@ -1791,7 +2006,7 @@ local function EnsureDropdown()
             -- 이 부위의 제작 핀은 새 스탯으로 다시 만든다 (스탯이 모자라면 기존 핀 유지)
             local pin = panel.pinnedItems[d.slotKey]
             if type(pin) == "table" and pin.srcTab == "craft" then
-                local np = MakeCraftPin(pin.item_id, keys, CraftEmb(d.slotKey))
+                local np = X.MakeCraftPin(pin.item_id, keys, X.CraftEmb(d.slotKey), d.craftTrack)
                 if np then
                     panel.pinnedItems[d.slotKey] = np
                     panel.presetRatings = nil
@@ -1831,11 +2046,12 @@ local function EnsureDropdown()
     d.backBtn:SetBackdropColor(1, 1, 1, 0.07)
     d.backBtn.label = d.backBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     d.backBtn.label:SetPoint("CENTER")
-    d.backBtn.label:SetText(L["◀ 제작 탭"])
+    d.backBtn.label:SetText(L["◀ 돌아가기"])
     d.backBtn:SetScript("OnClick", function()
         d.mode = "item"
-        d.tab = "craft"
+        d.tab = d.returnTab or "craft"
         d.fromCraft = nil
+        d.returnTab = nil
         d.page = 1
         RenderDropdown(d)
         d:Show()
@@ -1843,7 +2059,7 @@ local function EnsureDropdown()
     d.embLabel:Hide(); d.embBtn:Hide(); d.backBtn:Hide()
 
     -- 제작 탭: 보석·마부 줄 — 누르면 보석/마법부여 목록(gem/ench 모드)으로 바뀌고 「◀ 제작 탭」으로 돌아온다
-    local function CraftRow(labelText, mode)
+    local function CraftRow(labelText, mode, socket)
         local lbl = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         lbl:SetText(labelText)
         local btn = CreateFrame("Button", nil, d, "BackdropTemplate")
@@ -1859,6 +2075,8 @@ local function EnsureDropdown()
             if self.disabled then return end
             d.mode = mode
             d.fromCraft = true
+            d.gemSocket = socket or 1
+            d.returnTab = d.tab -- 「◀」로 돌아갈 탭
             d.page = 1
             RenderDropdown(d)
             d:Show()
@@ -1868,7 +2086,8 @@ local function EnsureDropdown()
         lbl:Hide(); btn:Hide()
         return lbl, btn
     end
-    d.gemRowLabel, d.gemRowBtn = CraftRow(L["보석"], "gem")
+    d.gemRowLabel, d.gemRowBtn = CraftRow(L["보석 1"], "gem", 1)
+    d.gem2RowLabel, d.gem2RowBtn = CraftRow(L["보석 2"], "gem", 2)
     d.enchRowLabel, d.enchRowBtn = CraftRow(L["마부"], "ench")
 
     -- 도감 로트가 지연 로딩되면 캐시 비우고 다시 그림 (연속 이벤트는 0.5초 스로틀)
@@ -1915,10 +2134,11 @@ local function EnsureDropdown()
     d.resetBtn.label:SetText(L["|cffffb454초기화|r"])
     d.resetBtn:SetScript("OnClick", function()
         if d.mode == "gem" then
-            panel.pinnedGems[d.slotKey] = nil
+            if (d.gemSocket or 1) == 2 then panel.pinnedGems2[d.slotKey] = nil else panel.pinnedGems[d.slotKey] = nil end
         elseif d.mode == "ench" then
             panel.pinnedEnchants[d.slotKey] = nil -- 착용 마부 유지로 복귀
         else
+            X.ClearAutoGems(d.slotKey, panel.pinnedItems[d.slotKey])
             panel.pinnedItems[d.slotKey] = nil
             panel.pinnedConv[d.slotKey] = nil
             panel.pinnedTracks[d.slotKey] = nil
@@ -2016,6 +2236,8 @@ local function EnsureDropdown()
         b:SetScript("OnClick", function(self)
             if d.tab == "dungeon" or d.tab == "raid" then
                 d.viewTrack = self.trackKey -- 조회 필터만 변경 (핀 아님)
+            elseif d.tab == "craft" or d.tab == "bags" then
+                X.SetTabTrack(d, self.trackKey) -- 제작·가방: 탭 템렙 + 이 탭에서 고른 핀 갱신
             else
                 panel.pinnedTracks[d.slotKey] = self.trackKey
                 if panel.Redraw then panel.Redraw() end
@@ -2102,11 +2324,11 @@ local function GridButton(d, i)
             -- 제작 탭: 2차 스탯 줄을 지금 선택한 스탯 수치로 (스탯이 모자라면 안내)
             local pd = self:GetParent()
             if pd.tab == "craft" and pd.mode ~= "gem" then
-                local info = CraftInfo(self.itemId)
-                local keys = CraftKeys(pd.slotKey)
-                local st = CraftStats(self.itemId, self.link, keys)
+                local info = X.CraftInfo(self.itemId)
+                local keys = X.CraftKeys(pd.slotKey)
+                local st = X.CraftStats(self.itemId, self.link, keys)
                 if st and info and (info.n or 0) > 0 then
-                    CraftFixTooltip(st)
+                    X.CraftFixTooltip(st)
                 elseif info and (info.n or 0) > #keys then
                     GameTooltip:AddLine(" ")
                     GameTooltip:AddLine("|cff00ccffWythic+|r " .. string.format(L["2차 스탯 %d개를 선택하면 수치가 표시됩니다"], info.n), 0.96, 0.62, 0.04, true)
@@ -2152,7 +2374,7 @@ local function GridButton(d, i)
         elseif self.enchEntry then
             -- 마법부여 모드: 최고 등급 주문서 툴팁 + 계산 반영 여부
             GameTooltip:SetItemByID(self.itemId)
-            local st = EnchantStatText(self.enchEntry.s2)
+            local st = X.EnchantStatText(self.enchEntry.s2)
             GameTooltip:AddLine(" ")
             if st then
                 GameTooltip:AddLine("|cff00ccffWythic+|r " .. string.format(L["계산 반영: %s (최고 등급, 착용 마부와의 차이만큼)"], st), 0.8, 0.8, 0.8, true)
@@ -2197,10 +2419,10 @@ local function GridButton(d, i)
             dd.craftEmbWarn = nil
             local pin = panel.pinnedItems[dd.slotKey]
             if type(pin) == "table" and pin.srcTab == "craft" then
-                local info = CraftInfo(pin.item_id)
+                local info = X.CraftInfo(pin.item_id)
                 local e = emb and emb ~= 0 and WythicPlusCraftData.embellishments[emb]
-                if not (e and info and not EmbApplies(e.use, info)) then
-                    local np = MakeCraftPin(pin.item_id, CraftKeys(dd.slotKey), emb)
+                if not (e and info and not X.EmbApplies(e.use, info)) then
+                    local np = X.MakeCraftPin(pin.item_id, X.CraftKeys(dd.slotKey), emb, dd.craftTrack)
                     if np then
                         panel.pinnedItems[dd.slotKey] = np
                         panel.presetRatings = nil
@@ -2218,19 +2440,31 @@ local function GridButton(d, i)
             return
         end
         if dd.mode == "gem" then
-            -- 보석 핀 토글
-            if panel.pinnedGems[dd.slotKey] == self.itemId then
-                panel.pinnedGems[dd.slotKey] = nil
+            -- 보석 핀 토글 (칸 1 = pinnedGems, 칸 2 = pinnedGems2)
+            local sock = dd.gemSocket or 1
+            local tbl = (sock == 2) and panel.pinnedGems2 or panel.pinnedGems
+            local other = (sock == 2) and panel.pinnedGems or panel.pinnedGems2
+            if tbl[dd.slotKey] == self.itemId then
+                tbl[dd.slotKey] = nil
             else
-                -- 다이아몬드(고유 장착) 보석: 전 부위 1개 — 다른 슬롯의 고유 보석 핀 자동 해제
+                -- 다이아몬드(고유 장착) 보석: 전 부위·전 칸 1개 — 다른 곳의 고유 보석 핀 자동 해제
                 if WythicPlus_GearIsUniqueGem and WythicPlus_GearIsUniqueGem(self.itemId) then
-                    for k, gid in pairs(panel.pinnedGems) do
-                        if k ~= dd.slotKey and WythicPlus_GearIsUniqueGem(gid) then
-                            panel.pinnedGems[k] = nil
+                    for _, t in ipairs({ panel.pinnedGems, panel.pinnedGems2 }) do
+                        for k, gid in pairs(t) do
+                            if not (t == tbl and k == dd.slotKey) and WythicPlus_GearIsUniqueGem(gid) then t[k] = nil end
                         end
                     end
                 end
-                panel.pinnedGems[dd.slotKey] = self.itemId
+                -- 착용템 그대로인 부위는 다른 칸의 실물 보석을 유지 — 보석 핀은 그 부위 보석 전체를 대체하므로
+                -- 한 칸만 바꿔도 나머지 칸 보석이 빠지지 않게 다른 칸을 실물 보석으로 채운다
+                if other[dd.slotKey] == nil and not X.SlotItemChanged(dd.slotKey) then
+                    local c3 = panel.cells and panel.cells[dd.slotKey]
+                    local wl3 = c3 and c3.inv and GetInventoryItemLink("player", c3.inv)
+                    local wg3 = wl3 and WythicPlus_GearLinkGems and WythicPlus_GearLinkGems(wl3) or {}
+                    local keep = wg3[(sock == 2) and 1 or 2]
+                    if keep then other[dd.slotKey] = keep end
+                end
+                tbl[dd.slotKey] = self.itemId
             end
             panel.presetRatings = nil
             if panel.Redraw then panel.Redraw() end
@@ -2245,27 +2479,28 @@ local function GridButton(d, i)
         if dd.tab == "craft" and not (type(cur) == "table" and cur.srcTab == "craft") then sameVariant = false end
         if curId and curId == self.itemId and sameVariant then
             -- 핀된 아이템 재클릭 = 핀 해제 (토글)
+            X.ClearAutoGems(dd.slotKey, cur)
             panel.pinnedItems[dd.slotKey] = nil
             panel.pinnedConv[dd.slotKey] = nil
         elseif dd.tab == "craft" then
             -- 제작 탭: 지정 스탯으로 최고 품질 제작을 가정한 핀. 착용 중인 같은 제작템도 다른 스탯 재제작일 수 있어
             -- "착용 이하 레벨은 유지" 규칙을 적용하지 않는다. 스탯이 모자라면 핀 없이 안내만
-            local keys = CraftKeys(dd.slotKey)
+            local keys = X.CraftKeys(dd.slotKey)
             -- 고른 장식을 이 아이템에 쓸 수 없으면(재질·전문기술 제한) 핀 없이 안내
-            local emb = CraftEmb(dd.slotKey)
+            local emb = X.CraftEmb(dd.slotKey)
             local embDef = emb and emb ~= 0 and WythicPlusCraftData.embellishments[emb]
-            local cinfo = CraftInfo(self.itemId)
-            if embDef and cinfo and (cinfo.n or 0) > 0 and not EmbApplies(embDef.use, cinfo) then
+            local cinfo = X.CraftInfo(self.itemId)
+            if embDef and cinfo and (cinfo.n or 0) > 0 and not X.EmbApplies(embDef.use, cinfo) then
                 dd.craftEmbWarn = true
                 RenderDropdown(dd)
                 dd:Show()
                 return
             end
             dd.craftEmbWarn = nil
-            local pin = MakeCraftPin(self.itemId, keys, emb)
+            local pin = X.MakeCraftPin(self.itemId, keys, emb, dd.craftTrack)
             if not pin then
                 -- 스탯이 모자라면 안내. 스탯은 충분한데 nil이면 아이템 정보 로딩 중(EnsureItem 요청됨) — 다시 클릭하면 된다
-                local info = CraftInfo(self.itemId)
+                local info = X.CraftInfo(self.itemId)
                 dd.craftWarn = info and #keys < (info.n or 0) or nil
                 RenderDropdown(dd)
                 dd:Show()
@@ -2292,7 +2527,16 @@ local function GridButton(d, i)
                     ilvl = self.itemIlvl or 0,
                     stats = (WythicPlus_GearLinkStats and WythicPlus_GearLinkStats(self.link)) or {},
                     srcTab = dd.tab,
+                    origLink = (dd.tab == "bags") and (self.origLink or self.link) or nil,
                 }
+                -- 가방 실물: 박혀 있는 보석을 기본값으로 (유저가 이미 고른 칸은 그대로). 핀을 풀면 같이 정리
+                if dd.tab == "bags" and WythicPlus_GearLinkGems then
+                    local g = WythicPlus_GearLinkGems(self.origLink or self.link) or {}
+                    local auto = {}
+                    if g[1] and panel.pinnedGems[dd.slotKey] == nil then panel.pinnedGems[dd.slotKey] = g[1]; auto[1] = g[1] end
+                    if g[2] and panel.pinnedGems2[dd.slotKey] == nil then panel.pinnedGems2[dd.slotKey] = g[2]; auto[2] = g[2] end
+                    if auto[1] or auto[2] then panel.pinnedItems[dd.slotKey].autoGems = auto end
+                end
             end
         elseif self.itemId then
             panel.pinnedItems[dd.slotKey] = self.itemId
@@ -2338,6 +2582,7 @@ local function GridButton(d, i)
         -- 이전 핀은 풀어 엔진 재최적화에 맡긴다 (선택을 유지하려면 부위 잠금 사용)
         for k in pairs(panel.pinnedItems) do
             if k ~= dd.slotKey and not panel.lockedSlots[k] then
+                X.ClearAutoGems(k, panel.pinnedItems[k])
                 panel.pinnedItems[k] = nil
                 panel.pinnedConv[k] = nil
             end
@@ -2368,6 +2613,7 @@ RenderDropdown = function(d)
     d.embBtn:Hide()
     d.backBtn:Hide()
     d.gemRowLabel:Hide(); d.gemRowBtn:Hide()
+    d.gem2RowLabel:Hide(); d.gem2RowBtn:Hide()
     d.enchRowLabel:Hide(); d.enchRowBtn:Hide()
 
     -- ── 마법부여 모드 / 장식 모드: 탭·트랙 없이 선택지 그리드 (보석 모드와 같은 골격) ──
@@ -2379,11 +2625,11 @@ RenderDropdown = function(d)
         d.dismissBtn:Hide()
         d.lockBtn:Hide()
         local isEnch = d.mode == "ench"
-        d:SetBackdropBorderColor(isEnch and 0.655 or CRAFT_BLUE[1], isEnch and 0.545 or CRAFT_BLUE[2], isEnch and 0.980 or CRAFT_BLUE[3], 0.5)
+        d:SetBackdropBorderColor(isEnch and 0.655 or X.CRAFT_BLUE[1], isEnch and 0.545 or X.CRAFT_BLUE[2], isEnch and 0.980 or X.CRAFT_BLUE[3], 0.5)
         local list = {}
         if isEnch then
             -- 2차 스탯 마부(계산 반영) 먼저 — 수치 큰 순, 나머지는 이름순
-            for _, e in ipairs(EnchantsForSlot(slotKey)) do list[#list + 1] = { ench = e } end
+            for _, e in ipairs(X.EnchantsForSlot(slotKey)) do list[#list + 1] = { ench = e } end
             local function tot(e)
                 local t = 0
                 for _, k in ipairs(STAT_ORDER) do t = t + ((e.s2 and e.s2[k]) or 0) end
@@ -2397,7 +2643,7 @@ RenderDropdown = function(d)
         else
             list[#list + 1] = { emb = "meta" }
             list[#list + 1] = { emb = 0 }
-            for _, o in ipairs(EmbOptionsForSlot(slotKey)) do list[#list + 1] = { emb = o.bid, item = o.item } end
+            for _, o in ipairs(X.EmbOptionsForSlot(slotKey)) do list[#list + 1] = { emb = o.bid, item = o.item } end
         end
         local y = SectionHeader(d, 1, -10, isEnch and L["마법부여 · 최고 등급"] or L["장식 선택 (계산 제외)"],
             isEnch and "a78bfa" or "60a5fa")
@@ -2408,8 +2654,8 @@ RenderDropdown = function(d)
         if d.page > pages then d.page = pages end
         local first = (d.page - 1) * GRID_PER_PAGE
         local shown = 0
-        local wornEnch = isEnch and WornEnchantId(slotKey)
-        local curEmb = CraftEmb(slotKey)
+        local wornEnch = isEnch and X.WornEnchantId(slotKey)
+        local curEmb = X.CraftEmb(slotKey)
         for i = 1, GRID_PER_PAGE do
             local o = list[first + i]
             local b = GridButton(d, i)
@@ -2432,10 +2678,10 @@ RenderDropdown = function(d)
                     local st = e.s2
                     local txt
                     for _, k in ipairs(STAT_ORDER) do
-                        if st and (st[k] or 0) > 0 then txt = CRAFT_SHORT[k] .. st[k] break end
+                        if st and (st[k] or 0) > 0 then txt = X.CRAFT_SHORT[k] .. st[k] break end
                     end
                     b.sub:SetText(txt and ("|cffa78bfa" .. txt .. "|r") or ("|cff6b7280" .. L["효과"] .. "|r"))
-                    local wHit = wornEnch and EnchIndex().byId[wornEnch]
+                    local wHit = wornEnch and X.EnchIndex().byId[wornEnch]
                     b.check:SetShown(wHit ~= nil and wHit.e == e)
                     selected = panel.pinnedEnchants[slotKey] == e.name
                 else
@@ -2457,7 +2703,7 @@ RenderDropdown = function(d)
                     selected = (o.emb == "meta" and curEmb == nil) or (o.emb ~= "meta" and curEmb == o.emb)
                 end
                 if selected then
-                    local c = isEnch and { 0.655, 0.545, 0.980 } or CRAFT_BLUE
+                    local c = isEnch and { 0.655, 0.545, 0.980 } or X.CRAFT_BLUE
                     b:SetBackdropBorderColor(c[1], c[2], c[3], 1)
                 else
                     b:SetBackdropBorderColor(0, 0, 0, 1)
@@ -2530,7 +2776,16 @@ RenderDropdown = function(d)
         local ls = panel.lastSim
         local hasRec = ls ~= nil and ((ls.gemPins ~= nil and ls.gemPins[slotKey] ~= nil)
             or (ls.gemRecommendations ~= nil and ls.gemRecommendations[slotKey] ~= nil))
-        local canRemove = (wg ~= nil and wg[1] ~= nil) or panel.pinnedGems[slotKey] ~= nil or hasRec
+        -- 두 번째 칸(d.gemSocket == 2): 핀 표 = pinnedGems2, 실물 보석 = 링크의 두 번째 보석
+        local sock = d.gemSocket or 1
+        local gemTbl = (sock == 2) and panel.pinnedGems2 or panel.pinnedGems
+        local wgs = wg and wg[sock] or nil
+        local canRemove
+        if sock == 2 then
+            canRemove = wgs ~= nil or gemTbl[slotKey] ~= nil
+        else
+            canRemove = (wg ~= nil and wg[1] ~= nil) or panel.pinnedGems[slotKey] ~= nil or hasRec
+        end
         local list = {}
         if canRemove then list[#list + 1] = { 0 } end
         for _, e in ipairs(metaList) do list[#list + 1] = e end
@@ -2565,15 +2820,15 @@ RenderDropdown = function(d)
                     b.glyph:SetText("|cff9ca3af◇|r") -- 장식 모드가 바꿔 둔 글리프 복원 (버튼 재사용)
                     b.glyph:Show()
                     b.sub:SetText("|cff9ca3af" .. L["빈 홈"] .. "|r")
-                    b.check:SetShown(wg == nil or wg[1] == nil) -- 지금 보석이 없으면 현재 상태 표시
+                    b.check:SetShown(wgs == nil) -- 지금 보석이 없으면 현재 상태 표시
                 else
                     b.icon:SetTexture(C_Item.GetItemIconByID(gid) or 134400)
                     b.icon:SetVertexColor(1, 1, 1, 1)
                     b.glyph:Hide()
                     b.sub:SetText("|cff9ca3af" .. string.format(L["%d명"], e[2] or 0) .. "|r")
-                    b.check:SetShown(wg ~= nil and wg[1] == gid)
+                    b.check:SetShown(wgs ~= nil and wgs == gid)
                 end
-                if panel.pinnedGems[slotKey] == gid then
+                if gemTbl[slotKey] == gid then
                     b:SetBackdropBorderColor(AMBER[1], AMBER[2], AMBER[3], 1)
                 else
                     b:SetBackdropBorderColor(0, 0, 0, 1)
@@ -2591,7 +2846,7 @@ RenderDropdown = function(d)
             d.pageText:SetPoint("TOPLEFT", 14, y - 4)
             y = y - 22
         end
-        local pinnedHere = panel.pinnedGems[slotKey] ~= nil
+        local pinnedHere = gemTbl[slotKey] ~= nil
         d.resetBtn:ClearAllPoints()
         d.resetBtn:SetPoint("TOPLEFT", 12, y)
         d.resetBtn:SetShown(pinnedHere)
@@ -2628,7 +2883,7 @@ RenderDropdown = function(d)
         { btn = d.tabBags, key = "bags", name = L["가방"], color = EMERALD },
         { btn = d.tabDungeon, key = "dungeon", name = L["던전"], color = SKY },
         { btn = d.tabRaid, key = "raid", name = L["레이드"], color = VIOLET },
-        { btn = d.tabCraft, key = "craft", name = L["제작"], color = CRAFT_BLUE },
+        { btn = d.tabCraft, key = "craft", name = L["제작"], color = X.CRAFT_BLUE },
     }
     local bc = AMBER
     for _, t in ipairs(TAB_DEFS) do
@@ -2850,11 +3105,12 @@ RenderDropdown = function(d)
     elseif d.tab == "craft" then
         -- 시즌 전체 제작 장비 중 이 부위·내 전문화에 맞는 것. 링크 = 지금 선택한 스탯 기준 제작 링크
         local cd = WythicPlusCraftData
-        local keys = CraftKeys(slotKey)
-        for _, it in ipairs(CraftItemsForSlot(slotKey)) do
+        local keys = X.CraftKeys(slotKey)
+        for _, it in ipairs(X.CraftItemsForSlot(slotKey)) do
             if not taken[it.itemId] then
                 entries[#entries + 1] = {
-                    itemId = it.itemId, ilvl = cd.ilvl, link = CraftLink(it.itemId, keys, CraftEmb(slotKey)),
+                    itemId = it.itemId, ilvl = TrackMaxIlvl(d.craftTrack or "Myth", true) or cd.ilvl,
+                    link = X.CraftLink(it.itemId, keys, X.CraftEmb(slotKey), d.craftTrack),
                     rank = MetaRankOf(panel.curSpec, slotKey, it.itemId, ""), craftN = it.info.n or 0,
                 }
             end
@@ -2868,8 +3124,11 @@ RenderDropdown = function(d)
     else
         for _, it in ipairs(ScanBagsForSlot(slotKey)) do
             if not taken[it.itemId] then
+                -- 탭 템렙(강화 트랙 버튼)을 고르면 그 트랙 최대 템렙으로 가정한 링크 — 표기·툴팁·핀 모두 이 링크
+                local rl = d.bagsTrack and X.RelinkForTrack(it.link, d.bagsTrack) or nil
                 entries[#entries + 1] = {
-                    itemId = it.itemId, ilvl = it.ilvl, link = it.link,
+                    itemId = it.itemId, ilvl = rl and (C_Item.GetDetailedItemLevelInfo(rl) or it.ilvl) or it.ilvl,
+                    link = rl or it.link, origLink = it.link,
                     -- 메타 채용 순위 라벨 (1~5위만 표시 — FillCard 공통 규칙)
                     rank = MetaRankOf(panel.curSpec, slotKey, it.itemId, ""),
                 }
@@ -2885,6 +3144,7 @@ RenderDropdown = function(d)
         b.bonuses = e.bonuses
         b.conv = e.conv
         b.itemIlvl = e.ilvl
+        b.origLink = e.origLink -- 가방 탭: 템렙 가정 전 실물 링크
         b.embKey = nil -- 장식/마부 모드가 남긴 값 초기화 (버튼 재사용)
         b.enchEntry = nil
         b.icon:SetTexture(C_Item.GetItemIconByID(e.itemId) or 134400)
@@ -2917,7 +3177,7 @@ RenderDropdown = function(d)
             local pc = AMBER
             if pst == "dungeon" then pc = SKY
             elseif pst == "raid" then pc = VIOLET
-            elseif pst == "craft" then pc = CRAFT_BLUE
+            elseif pst == "craft" then pc = X.CRAFT_BLUE
             elseif type(pin) == "table" and pst ~= "meta" then pc = EMERALD end
             b:SetBackdropBorderColor(pc[1], pc[2], pc[3], 1)
         else
@@ -2987,13 +3247,13 @@ RenderDropdown = function(d)
         usedHeaders = usedHeaders + 1
         if d.tab == "craft" then
             y = SectionHeader(d, usedHeaders, y,
-                string.format(L["제작 · 최고 품질 %d"], (WythicPlusCraftData and WythicPlusCraftData.ilvl) or 0), "60a5fa")
+                string.format(L["제작 · 최고 품질 %d"], TrackMaxIlvl(d.craftTrack or "Myth", true) or (WythicPlusCraftData and WythicPlusCraftData.ilvl) or 0), "60a5fa")
             -- 2차 스탯 선택 줄 + 안내문
             d.craftLabel:ClearAllPoints()
             d.craftLabel:SetPoint("TOPLEFT", 12, y)
             d.craftLabel:Show()
             y = y - 16
-            local keys = CraftKeys(slotKey)
+            local keys = X.CraftKeys(slotKey)
             local bw = (DROP_W - 24 - 3 * 4) / 4
             for i, b in ipairs(d.craftStatBtns) do
                 local sel = false
@@ -3015,61 +3275,9 @@ RenderDropdown = function(d)
             d.embLabel:Show()
             d.embBtn:ClearAllPoints()
             d.embBtn:SetPoint("TOPRIGHT", -12, y)
-            d.embBtn.label:SetText(EmbName(CraftEmb(slotKey)) .. "  |cff9ca3af▾|r")
+            d.embBtn.label:SetText(X.EmbName(X.CraftEmb(slotKey)) .. "  |cff9ca3af▾|r")
             d.embBtn:Show()
             y = y - 26
-            -- 보석 줄: 홈 가능 부위(랭커 보석 데이터가 있는 부위)만. 아이템을 고르기 전엔 착용템에 홈이 있을 때만 선택 가능
-            -- (홈 가정은 직접 고른 아이템에만 적용 — 홈 없는 착용템에 보석이 계산되지 않게)
-            local gemList = panel.effSpec and panel.effSpec.gems and panel.effSpec.gems[slotKey]
-            if gemList and #gemList > 0 then
-                local c2 = panel.cells and panel.cells[slotKey]
-                local wl3 = c2 and c2.inv and GetInventoryItemLink("player", c2.inv)
-                local sockets = wl3 and WythicPlus_GearSocketCount and WythicPlus_GearSocketCount(wl3) or 0
-                local canGem = panel.pinnedItems[slotKey] ~= nil or (sockets or 0) > 0
-                local gp = panel.pinnedGems[slotKey]
-                local gtxt
-                if not canGem then
-                    gtxt = "|cff6b7280" .. L["아이템을 먼저 고르세요"] .. "|r"
-                elseif gp == 0 then
-                    gtxt = L["보석 해제"]
-                elseif gp then
-                    EnsureItem(gp)
-                    gtxt = C_Item.GetItemNameByID(gp) or (L["보석"] .. " " .. gp)
-                else
-                    gtxt = L["자동 (추천 보석)"]
-                end
-                d.gemRowLabel:ClearAllPoints()
-                d.gemRowLabel:SetPoint("TOPLEFT", 12, y - 4)
-                d.gemRowLabel:Show()
-                d.gemRowBtn:ClearAllPoints()
-                d.gemRowBtn:SetPoint("TOPRIGHT", -12, y)
-                d.gemRowBtn.disabled = not canGem
-                d.gemRowBtn:SetAlpha(canGem and 1 or 0.6)
-                d.gemRowBtn.label:SetText(gtxt .. (canGem and "  |cff9ca3af▾|r" or ""))
-                d.gemRowBtn:Show()
-                y = y - 26
-            end
-            -- 마부 줄: 고른 마부 → 착용 마부(유지)
-            if #EnchantsForSlot(slotKey) > 0 then
-                local pe2 = EnchantByName(panel.pinnedEnchants[slotKey])
-                local etxt
-                if pe2 then
-                    EnsureItem(pe2.item2)
-                    etxt = EnchantShortName(pe2)
-                else
-                    local wid = WornEnchantId(slotKey)
-                    local wn = wid and (WythicPlusGearData.enchantNames or {})[wid]
-                    etxt = wn and (EnchantName(wn) .. L[" (유지)"]) or L["없음"]
-                end
-                d.enchRowLabel:ClearAllPoints()
-                d.enchRowLabel:SetPoint("TOPLEFT", 12, y - 4)
-                d.enchRowLabel:Show()
-                d.enchRowBtn:ClearAllPoints()
-                d.enchRowBtn:SetPoint("TOPRIGHT", -12, y)
-                d.enchRowBtn.label:SetText(etxt .. "  |cff9ca3af▾|r")
-                d.enchRowBtn:Show()
-                y = y - 26
-            end
             d.craftHint:ClearAllPoints()
             d.craftHint:SetPoint("TOPLEFT", 12, y)
             d.craftHint:SetWidth(DROP_W - 24)
@@ -3107,6 +3315,70 @@ RenderDropdown = function(d)
         local gridRows = shown > 0 and math.ceil(math.min(#entries - first, GRID_PER_PAGE) / GRID_COLS) or 1
         y = y - gridRows * (GRID_CELL + 6) - 2
     end
+    -- 이 부위 보석·마법부여 (모든 탭 공통) — 직접 고른 아이템·착용템 모두 여기서 고른다.
+    -- 보석 칸 수 = 그 아이템의 실제 홈과 뚫을 수 있는 홈 중 큰 쪽. 칸마다 [홈]/[뚫을 홈] 표시
+    do
+        local nGem = X.GemSlots(slotKey)
+        local actual = X.ActualSockets(slotKey)
+        local enchList = X.EnchantsForSlot(slotKey)
+        if nGem > 0 or #enchList > 0 then
+            usedHeaders = usedHeaders + 1
+            y = SectionHeader(d, usedHeaders, y - 4, L["보석 · 마법부여"], nil)
+            local c4 = panel.cells and panel.cells[slotKey]
+            local wl4 = c4 and c4.inv and GetInventoryItemLink("player", c4.inv)
+            local wg4 = wl4 and WythicPlus_GearLinkGems and WythicPlus_GearLinkGems(wl4) or {}
+            local changed = X.SlotItemChanged(slotKey)
+            local rows = { { d.gemRowLabel, d.gemRowBtn }, { d.gem2RowLabel, d.gem2RowBtn } }
+            for gi = 1, math.min(nGem, 2) do
+                local pinG = (gi == 2) and panel.pinnedGems2[slotKey] or panel.pinnedGems[slotKey]
+                local txt
+                if pinG == 0 then
+                    txt = L["빈 홈"]
+                elseif pinG then
+                    EnsureItem(pinG)
+                    txt = C_Item.GetItemNameByID(pinG) or (L["보석"] .. " " .. pinG)
+                elseif not changed and wg4[gi] then
+                    EnsureItem(wg4[gi])
+                    txt = (C_Item.GetItemNameByID(wg4[gi]) or L["보석"]) .. L[" (유지)"]
+                elseif gi == 1 then
+                    txt = L["자동 (추천 보석)"]
+                else
+                    txt = L["빈 홈"]
+                end
+                local tag = (gi <= actual) and ("|cff9ca3af" .. L["[홈]"] .. "|r ") or ("|cff60a5fa" .. L["[뚫을 홈]"] .. "|r ")
+                local lbl, btn = rows[gi][1], rows[gi][2]
+                lbl:ClearAllPoints(); lbl:SetPoint("TOPLEFT", 12, y - 4); lbl:Show()
+                btn:ClearAllPoints(); btn:SetPoint("TOPRIGHT", -12, y)
+                btn.disabled = nil; btn:SetAlpha(1)
+                btn.label:SetText(tag .. txt .. "  |cff9ca3af▾|r")
+                btn:Show()
+                y = y - 26
+            end
+            if #enchList > 0 then
+                local pe2 = X.EnchantByName(panel.pinnedEnchants[slotKey])
+                local etxt
+                if pe2 then
+                    EnsureItem(pe2.item2)
+                    etxt = X.EnchantShortName(pe2)
+                else
+                    local swapped = X.ItemSwapped(slotKey)
+                    local eid = swapped and X.SwappedItemEnchant(slotKey) or (not swapped and X.WornEnchantId(slotKey)) or nil
+                    local wn = eid and (WythicPlusGearData.enchantNames or {})[eid]
+                    if wn then
+                        etxt = EnchantName(wn) .. (swapped and L[" (아이템)"] or L[" (유지)"])
+                    else
+                        etxt = swapped and L["없음 (교체로 기존 마부 빠짐)"] or L["없음"]
+                    end
+                end
+                d.enchRowLabel:ClearAllPoints(); d.enchRowLabel:SetPoint("TOPLEFT", 12, y - 4); d.enchRowLabel:Show()
+                d.enchRowBtn:ClearAllPoints(); d.enchRowBtn:SetPoint("TOPRIGHT", -12, y)
+                d.enchRowBtn.label:SetText(etxt .. "  |cff9ca3af▾|r")
+                d.enchRowBtn:Show()
+                y = y - 26
+            end
+        end
+    end
+
     -- 남은 풀 숨김 (탭 전환 시 잔상 방지)
     for i = used + 1, #d.grid do d.grid[i]:Hide() end
     for i = usedHeaders + 1, #d.secHeaders do
@@ -3191,7 +3463,7 @@ RenderDropdown = function(d)
     if panel.optimize or pinnedHere or showDismiss or pages > 1 then y = y - 26 end
 
     -- 강화 트랙 (메타 탭 전용)
-    local showTrack = (d.tab == "meta" or d.tab == "dungeon" or d.tab == "raid") and shown > 0
+    local showTrack = (d.tab == "meta" or d.tab == "dungeon" or d.tab == "raid" or d.tab == "craft" or d.tab == "bags") and shown > 0
     d.trackDivider:SetShown(showTrack)
     d.trackLabel:SetShown(showTrack)
     if showTrack then
@@ -3202,9 +3474,12 @@ RenderDropdown = function(d)
         end
         local crafted = activeId and srcs[activeId] and srcs[activeId][1] == "crafted" or false
         local activeTrack = (d.tab == "dungeon" or d.tab == "raid") and (d.viewTrack or "Champion")
+            or (d.tab == "craft" and (d.craftTrack or "Myth"))
+            or (d.tab == "bags" and (d.bagsTrack or false))
             or panel.pinnedTracks[slotKey]
+        if activeTrack == false then activeTrack = nil end
         local activeIlvl = activeId and panel.curSpec and MetaItemInfo(panel.curSpec, slotKey, activeId) or nil
-        if not activeTrack and activeIlvl then
+        if not activeTrack and activeIlvl and d.tab ~= "bags" then
             activeTrack = TrackFromIlvl(activeIlvl, crafted)
         end
         d.trackLabel:SetText(L["강화 트랙"])
@@ -3220,8 +3495,8 @@ RenderDropdown = function(d)
         local visBtns = 0
         for i, b in ipairs(d.trackBtns) do
             local t = d.trackDefs[i]
-            if t.key == "Peak" and d.tab == "dungeon" then
-                b:Hide() -- 막넴 344는 레이드/메타 전용
+            if t.key == "Peak" and (d.tab == "dungeon" or d.tab == "craft") then
+                b:Hide() -- 막넴 344는 레이드/메타/가방 전용 (제작템은 신화 331이 상한)
             else
                 visBtns = visBtns + 1
                 local col = (visBtns - 1) % 2
@@ -3320,6 +3595,7 @@ local function BuildPresetSnapshot()
         end
         if entry then
             entry.enchPin = panel.pinnedEnchants[key] -- 유저가 고른 마법부여 (복원 시 다시 핀)
+            entry.gemId2 = panel.pinnedGems2[key] -- 두 번째 보석 칸
             -- 마부/보석: 추천이 있으면 추천, 없으면 착용 중인 것
             if v then
                 entry.ench, entry.enchItemId, entry.gemId, entry.gemNone = v.ench, v.enchItemId, v.gemId, v.gemNone
@@ -3388,6 +3664,7 @@ local function ApplyPreset(p)
     wipe(panel.pinnedConv)
     wipe(panel.pinnedGems)
     wipe(panel.pinnedEnchants)
+    wipe(panel.pinnedGems2)
     wipe(panel.dismissedSlots)
     wipe(panel.pinnedTracks)
     wipe(panel.lockedSlots) -- 프리셋 = 전체 구성 교체이므로 잠금도 해제
@@ -3397,6 +3674,7 @@ local function ApplyPreset(p)
         if e.src == "meta" and e.conv then panel.pinnedConv[slot] = e.conv end
         -- 보석도 핀으로 복원 — 저장만 되고 복원이 빠져 있었음 (2026-09-06)
         if e.enchPin then panel.pinnedEnchants[slot] = e.enchPin end
+        if e.gemId2 then panel.pinnedGems2[slot] = e.gemId2 end
         if e.gemId then panel.pinnedGems[slot] = e.gemId
         elseif e.gemNone then panel.pinnedGems[slot] = 0 end -- 보석 해제(빈 홈) 핀
     end
@@ -3483,7 +3761,7 @@ end
 RenderPresets = function(f)
     -- 저장 가능 조건: 최적화/커스텀으로 뭔가 바뀐 상태 (착용 그대로면 저장 의미 없음)
     local canSave = (panel.lastSim ~= nil)
-        or next(panel.pinnedItems) ~= nil or next(panel.pinnedGems) ~= nil or next(panel.pinnedEnchants) ~= nil
+        or next(panel.pinnedItems) ~= nil or next(panel.pinnedGems) ~= nil or next(panel.pinnedEnchants) ~= nil or next(panel.pinnedGems2) ~= nil
         or next(panel.pinnedTracks) ~= nil
     f.saveBtn.enabledSave = canSave
     f.saveBtn:SetAlpha(canSave and 1 or 0.4)
@@ -3542,6 +3820,7 @@ ShowGemDropdown = function(slotKey, anchorFrame)
     if not (panel and panel.effSpec) then return end
     local d = EnsureDropdown()
     d.fromCraft = nil
+    d.gemSocket = 1
     if d:IsShown() and d.slotKey == slotKey and d.mode == "gem" then d:Hide() return end
     d.mode = "gem"
     d.slotKey = slotKey
@@ -3552,7 +3831,7 @@ ShowGemDropdown = function(slotKey, anchorFrame)
 end
 
 -- 마법부여 선택 드롭다운 — 아이템 드롭다운 프레임 재사용 (ench 모드). 카드의 마부 줄 클릭으로 연다
-ShowEnchantDropdown = function(slotKey, anchorFrame)
+X.ShowEnchantDropdown = function(slotKey, anchorFrame)
     if not (panel and panel.effSpec) then return end
     local d = EnsureDropdown()
     d.fromCraft = nil
@@ -3692,6 +3971,7 @@ local function CreateSlotCell(parent, slot, side)
                 panel.pinnedConv[k] = nil
                 panel.pinnedGems[k] = nil
                 panel.pinnedEnchants[k] = nil
+                panel.pinnedGems2[k] = nil
                 panel.pinnedTracks[k] = nil
                 panel.dismissedSlots[k] = nil
             end
@@ -3711,7 +3991,7 @@ local function CreateSlotCell(parent, slot, side)
             if self.recLink then
                 GameTooltip:SetHyperlink(WithCurrentSpec(self.recLink))
                 -- 제작 탭 핀: 2차 스탯 줄을 지정 스탯 수치로
-                if self.recCraftStats then CraftFixTooltip(self.recCraftStats) end
+                if self.recCraftStats then X.CraftFixTooltip(self.recCraftStats) end
                 -- 마나용제 변환 가정: 어떤 소지/착용 아이템을 변환한 모습인지 명시
                 if self.recConvFrom then
                     local _, charges, cname = WythicPlus_GearCatalystInfo and WythicPlus_GearCatalystInfo()
@@ -3946,6 +4226,7 @@ local function CreateBottomCell(parent, slot, side)
                 panel.pinnedConv[k] = nil
                 panel.pinnedGems[k] = nil
                 panel.pinnedEnchants[k] = nil
+                panel.pinnedGems2[k] = nil
                 panel.pinnedTracks[k] = nil
                 panel.dismissedSlots[k] = nil
             end
@@ -3965,7 +4246,7 @@ local function CreateBottomCell(parent, slot, side)
             if self.recLink then
                 GameTooltip:SetHyperlink(WithCurrentSpec(self.recLink))
                 -- 제작 탭 핀: 2차 스탯 줄을 지정 스탯 수치로
-                if self.recCraftStats then CraftFixTooltip(self.recCraftStats) end
+                if self.recCraftStats then X.CraftFixTooltip(self.recCraftStats) end
                 -- 마나용제 변환 가정: 어떤 소지/착용 아이템을 변환한 모습인지 명시
                 if self.recConvFrom then
                     local _, charges, cname = WythicPlus_GearCatalystInfo and WythicPlus_GearCatalystInfo()
@@ -4637,6 +4918,7 @@ local function BuildPanel()
     panel.pinnedConv = {} -- 메타 핀의 변형(conv) — 같은 itemId 일반/변환 구분
     panel.pinnedGems = {} -- 슬롯 → 핀 보석ID (보석 드롭다운에서 선택)
     panel.pinnedEnchants = {} -- 슬롯 → 핀 마법부여 이름(enUS, WythicPlusCraftData.enchants) — 착용 마부 대비 차분 반영
+    panel.pinnedGems2 = {} -- 슬롯 → 두 번째 보석 칸 핀 보석ID (0 = 빈 홈). 첫 칸은 pinnedGems
     panel.dismissedSlots = {} -- 슬롯 → true (시뮬 추천 해제 — 착용템 유지)
     panel.lockedSlots = {} -- 슬롯 → true (부위 잠금 — 메타/소지품 최적화에서 제외, Shift+클릭 토글)
     panel.pinnedTracks = {}
@@ -4745,13 +5027,10 @@ local function BuildPanel()
                     dispIlvl = v.ilvl
                     -- 유저가 직접 고른 아이템(링크 핀): 보석 = 화면의 보석(핀/추천), 마부 = 착용 마부 유지(가방 실물은 자기 마부)
                     local pinT = panel.pinnedItems[slotKey]
+                    -- (기존 템을 바꾸면 기존 마부·보석은 빠진다 — 마부는 고른 마부 또는 가방 실물 자체 마부만)
                     if p and type(pinT) == "table" then
                         if v.gemId then p.gems = { tostring(v.gemId) } end
-                        if not p.enchant and pinT.srcTab ~= "bags" then
-                            local wlE = cell.inv and GetInventoryItemLink("player", cell.inv)
-                            local wpE = wlE and LinkSimcParts(wlE)
-                            if wpE and wpE.enchant then p.enchant = wpE.enchant end
-                        end
+                        if v.gemId2 then p.gems[#p.gems + 1] = tostring(v.gemId2) end
                     end
                 elseif v and v.itemId then
                     local b = v.bonuses or ""
@@ -4769,13 +5048,14 @@ local function BuildPanel()
                           redirect = ConvertedSourceItem(panel.effSpec, slotKey, v.itemId, v.conv) }
                     for tok in b:gmatch("[^:]+") do p.bonuses[#p.bonuses + 1] = tok end
                     if v.gemId then p.gems[1] = tostring(v.gemId) end
+                    if v.gemId2 then p.gems[#p.gems + 1] = tostring(v.gemId2) end
                     dispName = C_Item.GetItemNameByID(v.itemId)
                     dispIlvl = v.ilvl
                     -- 착용 마부 유지 + 교체된 착용템은 가방 섹션으로 (웹 finalEquip/bagItems와 동일)
                     local wl2 = cell.inv and GetInventoryItemLink("player", cell.inv)
                     if wl2 then
                         local wp = LinkSimcParts(wl2)
-                        if wp and wp.enchant then p.enchant = wp.enchant end
+                        if wp and wp.enchant and not panel.pinnedItems[slotKey] then p.enchant = wp.enchant end -- 유저가 바꾼 템은 기존 마부 빠짐
                         replacedWorn[#replacedWorn + 1] = { sslot = sslot, link = wl2 }
                     end
                 else
@@ -4788,7 +5068,7 @@ local function BuildPanel()
                 end
                 if p then
                     -- 유저가 고른 마법부여가 있으면 그 마부 ID (링크용 ID를 아는 마부만)
-                    local peS = EnchantByName(panel.pinnedEnchants[slotKey])
+                    local peS = X.EnchantByName(panel.pinnedEnchants[slotKey])
                     if peS and peS.enchId then p.enchant = tostring(peS.enchId) end
                     if dispName then
                         lines[#lines + 1] = "# " .. dispName .. " (" .. tostring(dispIlvl or "?") .. ")"
@@ -5065,6 +5345,7 @@ local function BuildPanel()
         wipe(panel.pinnedConv)
         wipe(panel.pinnedGems)
         wipe(panel.pinnedEnchants)
+        wipe(panel.pinnedGems2)
         wipe(panel.dismissedSlots)
         wipe(panel.pinnedTracks)
         wipe(panel.lockedSlots)
@@ -5617,12 +5898,16 @@ local function Redraw(animate)
         end
         if any then WythicPlus_GearApplyDelta(sim, panel.effSpec, delta) end
     end
-    -- 마법부여 핀: 고른 마부(최고 등급 고정 2차 스탯) - 착용 마부 만큼 차분 반영 (계산 제외 마부는 0)
+    -- 마법부여: (최종 마부) - (착용 마부) 차분. 유저가 템을 바꾼 부위는 기존 마부가 빠진다 (계산 제외 마부는 0)
+    local deltaSpec = (panel.optimize and panel.optMode == "owned") and panel.ownedSpec or panel.effSpec
     if sim and sim.statRatios and WythicPlus_GearApplyDelta then
-        local ed, eany = EnchantPinDelta()
-        if eany then
-            WythicPlus_GearApplyDelta(sim, (panel.optimize and panel.optMode == "owned") and panel.ownedSpec or panel.effSpec, ed)
-        end
+        local ed, eany = X.EnchantPinDelta()
+        if eany then WythicPlus_GearApplyDelta(sim, deltaSpec, ed) end
+    end
+    -- 두 번째 보석 칸(유저 선택): 그 보석 스탯을 더한다
+    if sim and sim.statRatios and WythicPlus_GearApplyGemDelta then
+        local gd, gany = X.Gem2Delta()
+        if gany then WythicPlus_GearApplyGemDelta(sim, deltaSpec, gd) end
     end
     panel.lastSim = sim
 
@@ -5769,7 +6054,7 @@ local function Redraw(animate)
     SetModeActive(panel.ownedBtn, ownedOn)
     -- 전체 초기화: 커스텀(핀·보석·트랙·해제)이 하나라도 있으면 표시
     if panel.clearBtn then
-        panel.clearBtn:SetShown(next(panel.pinnedItems) ~= nil or next(panel.pinnedGems) ~= nil or next(panel.pinnedEnchants) ~= nil
+        panel.clearBtn:SetShown(next(panel.pinnedItems) ~= nil or next(panel.pinnedGems) ~= nil or next(panel.pinnedEnchants) ~= nil or next(panel.pinnedGems2) ~= nil
             or next(panel.pinnedTracks) ~= nil or next(panel.dismissedSlots) ~= nil)
     end
     -- 박스 높이: 제목 + 모드 버튼 + 레이드 줄(항상 표시, 소지품 모드는 비활성) — 영웅특성 행만 가변
@@ -5976,7 +6261,7 @@ local function Redraw(animate)
                         pinConv = panel.pinnedConv[key] } -- 프리셋 복원 메타 핀의 변형 유지
                     if pin.srcTab == "craft" then -- 제작 탭 핀: 칩 "제작 · 지정 스탯", 툴팁 스탯 보정
                         recInfo.craftStats = pin.stats
-                        recInfo.craftLabel = CraftLabel(pin) .. (LinkEmbellished(pin.link) and (" · " .. L["장식"]) or "")
+                        recInfo.craftLabel = X.CraftLabel(pin) .. (X.LinkEmbellished(pin.link) and (" · " .. L["장식"]) or "")
                     end
                 else
                     recInfo = { itemId = pin, pinConv = panel.pinnedConv[key] }
@@ -6063,23 +6348,27 @@ local function Redraw(animate)
             -- 유저가 직접 고른 부위: 마부 줄 = 고른 마부 → (메타 추천) → 착용 마부 유지 → "마법부여 선택" 안내.
             -- 마부 줄을 누르면 마법부여 선택창. 고른 마부는 아이템 핀 없이도 표시(부위 기준 핀)
             local userPicked = panel.pinnedItems[key] ~= nil
-            local pe = EnchantByName(panel.pinnedEnchants[key])
+            local pe = X.EnchantByName(panel.pinnedEnchants[key])
             if pe then
                 EnsureItem(pe.item2)
-                ench = { name = EnchantShortName(pe), quality = C_Item.GetItemQualityByID(pe.item2), itemId = pe.item2 }
-            elseif userPicked and not ench and #EnchantsForSlot(key) > 0 then
-                local wid = WornEnchantId(key)
+                ench = { name = X.EnchantShortName(pe), quality = C_Item.GetItemQualityByID(pe.item2), itemId = pe.item2 }
+            elseif userPicked and not ench and #X.EnchantsForSlot(key) > 0 then
+                -- 템을 바꿨으면 기존 마부는 빠진다 → 그 템의 원래 마부(가방 실물) 또는 "마법부여 선택". 그대로면 착용 마부 유지
+                local swapped = X.ItemSwapped(key)
+                local wid = swapped and X.SwappedItemEnchant(key) or (not swapped and X.WornEnchantId(key)) or nil
                 local wn = wid and (WythicPlusGearData.enchantNames or {})[wid]
-                ench = { name = wn and (EnchantName(wn) .. L[" (유지)"]) or L["✧ 마법부여 선택"],
+                ench = { name = wn and (EnchantName(wn) .. (swapped and L[" (아이템)"] or L[" (유지)"])) or L["✧ 마법부여 선택"],
                     quality = wn and wn[2] or nil, itemId = wn and wn[3] or nil }
             end
             -- 유저가 직접 고른 부위(홈 가정): 보석이 없으면 빈 홈 줄 — 누르면 보석 선택창
             local gemEmpty = userPicked and socketSlots ~= nil and socketSlots[key] == true and not gemId and not gemNone
-            if gemId or ench or gemNone or gemEmpty then
+            if gemId or ench or gemNone or gemEmpty or (panel.pinnedGems2 and panel.pinnedGems2[key]) then
                 recInfo = recInfo or {}
                 recInfo.gemId = gemId
                 recInfo.gemNone = gemNone
                 recInfo.gemEmpty = gemEmpty or nil
+                local g2 = panel.pinnedGems2 and panel.pinnedGems2[key]
+                recInfo.gemId2 = (g2 and g2 ~= 0) and g2 or nil -- 두 번째 보석 칸
                 recInfo.ench = ench and ench.name or nil
                 recInfo.enchQuality = ench and ench.quality or nil
                 recInfo.enchItemId = ench and ench.itemId or nil
@@ -6127,11 +6416,11 @@ local function Redraw(animate)
             local ri = recInfos[key2]
             local isEmb = false
             if ri and ri.itemId then
-                if ri.bagLink then isEmb = LinkEmbellished(ri.bagLink)
-                elseif ri.bonuses then isEmb = BonusesEmbellished(ri.bonuses) end
+                if ri.bagLink then isEmb = X.LinkEmbellished(ri.bagLink)
+                elseif ri.bonuses then isEmb = X.BonusesEmbellished(ri.bonuses) end
             else
                 local wl2 = cell2.inv and GetInventoryItemLink("player", cell2.inv)
-                isEmb = wl2 ~= nil and LinkEmbellished(wl2)
+                isEmb = wl2 ~= nil and X.LinkEmbellished(wl2)
             end
             if isEmb then embCount = embCount + 1 end
         end
@@ -6150,7 +6439,7 @@ local function Redraw(animate)
         panel.lastView[key] = recInfo and {
             itemId = recInfo.itemId, bagLink = recInfo.bagLink, ilvl = recInfo.ilvl, convFrom = recInfo.convFrom,
             bonuses = recInfo.bonuses, conv = recInfo.conv, ench = recInfo.ench, enchItemId = recInfo.enchItemId,
-            gemId = recInfo.gemId, gemNone = recInfo.gemNone,
+            gemId = recInfo.gemId, gemNone = recInfo.gemNone, gemId2 = recInfo.gemId2,
             craft = (recInfo.srcTab == "craft") or nil, -- 제작 가정(미보유) — 일괄 착용 대상 아님
         } or nil
         if key == "MAIN_HAND" or key == "OFF_HAND" then
@@ -6232,6 +6521,7 @@ function WythicPlus_ToggleGear()
         wipe(panel.pinnedConv)
         wipe(panel.pinnedGems)
         wipe(panel.pinnedEnchants)
+        wipe(panel.pinnedGems2)
         wipe(panel.dismissedSlots)
         wipe(panel.pinnedTracks)
         wipe(panel.lockedSlots)

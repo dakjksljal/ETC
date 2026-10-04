@@ -993,6 +993,12 @@ function WythicPlus_GearApplyDelta(sim, spec, delta)
     ApplyDelta(Core, sim, spec, delta, true)
 end
 
+-- Gear UI용 — 보석 차분(두 번째 보석 칸 등). 보석 핀과 같이 장비 전용 레이팅(gearOnly)에는 넣지 않는다
+function WythicPlus_GearApplyGemDelta(sim, spec, delta)
+    if not (Core and sim and sim.statRatios and spec) then return end
+    ApplyDelta(Core, sim, spec, delta, false)
+end
+
 -- 핀(유저 커스텀 선택) 적용 — 웹 adjustSim과 동일하게 베이스 시뮬 결과 위에 차분 반영:
 -- 추천을 핀 아이템으로 교체하고 statRatios·finalDistance를 재계산한다 (시뮬 재실행 없음).
 local function ApplyPins(Core, sim, spec, pop, equip, pinned)
