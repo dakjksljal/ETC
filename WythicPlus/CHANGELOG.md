@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **All 21 gems in the gem picker.** After the rankers' gems for the slot (sorted by player count), the picker lists every other gem in the data, so all 21 can be chosen in any socket. Gems no ranker uses show a dash instead of a player count.
+- **Second gem on its own line.** On a two-socket item (e.g. a neck), the second gem now shows on its own line under the first instead of being joined on one line and cut off. Clicking that line opens the picker for socket 2.
 - **Crafted tab in the item picker.** A fifth tab lists every crafted item of the season that fits the slot and your specialization (98 items, collected from Wowhead by `tools/build-craft-data.py` into `WythicPlusCraftData.lua`). Pick the secondary stats with the four stat buttons (up to two; items with one stat choice use the first, "Fixed" items have no choice), then click an item: it is pinned at max crafting quality (331) with that item level's secondary budget split evenly over your stats, and the optimizer re-optimizes the other slots around it like any pin. Changing the stat buttons updates a crafted pin in place. Bonus IDs (embellishment included) follow the rankers' copy of the same item when one exists. Card chip reads "Crafted · Crit/Haste", tooltips show the chosen stats, the SimC export carries `crafted_stats`, and "Equip all bag picks" skips crafted pins (you don't own them yet)
 - The picker tabs are 46px wide (was 58px) so the fifth tab fits
 - **Gems, enchants and embellishments for items you pick yourself.** Applies only to items you choose (any tab); automatic recommendations are unchanged

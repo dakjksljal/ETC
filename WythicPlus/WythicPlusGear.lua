@@ -261,7 +261,7 @@ local function AttachRecSub(rec, isLeft)
             if self.isEnch and r.slotKey and X.ShowEnchantDropdown then
                 X.ShowEnchantDropdown(r.slotKey, self)
             elseif r.slotKey and ShowGemDropdown then
-                ShowGemDropdown(r.slotKey, self)
+                ShowGemDropdown(r.slotKey, self, self.gemSocket)
             end
         end)
         f.SetShownAll = function(self, shown)
@@ -275,6 +275,8 @@ local function AttachRecSub(rec, isLeft)
     rec.subEnch = line(0.655, 0.545, 0.980) -- #a78bfa
     rec.subEnch.isEnch = true
     rec.subGem = line(0.376, 0.647, 0.980)  -- #60a5fa
+    rec.subGem2 = line(0.376, 0.647, 0.980) -- 두 번째 보석 칸 — 첫 보석 줄 바로 아래 한 줄
+    rec.subGem2.gemSocket = 2
     rec.subInward = isLeft and "RIGHT" or "LEFT"
     rec.subOutward = isLeft and "LEFT" or "RIGHT"
 end
@@ -483,16 +485,20 @@ local function SetRec(rec, recInfo, animate)
         local gq = C_Item.GetItemQualityByID(recInfo.gemId)
         local gqc = gq and ITEM_QUALITY_COLORS[gq]
         gemTxt = (gicon and ("|T" .. gicon .. ":14:14|t ") or "") .. (gqc and gqc.hex or "|cffffffff") .. gname .. "|r"
-        if recInfo.gemId2 then -- 두 번째 보석 칸 (유저 선택)
-            EnsureItem(recInfo.gemId2)
-            local g2 = C_Item.GetItemNameByID(recInfo.gemId2) or L["보석"]
-            local g2i = C_Item.GetItemIconByID(recInfo.gemId2)
-            gemTxt = gemTxt .. " + " .. (g2i and ("|T" .. g2i .. ":14:14|t ") or "") .. g2
-        end
     elseif recInfo.gemEmpty or recInfo.gemNone then
         -- 빈 소켓 (웹의 점선 다이아 자국) — 상태 표시 "빈 홈"(지시형 "보석 선택"은 빼라는 듯 읽혔음, 2026-09-12).
         -- 클릭하면 보석 선택창. 보석 해제 핀도 같은 표시
         gemTxt = L["|cff5f6672◇ 빈 홈|r"]
+    end
+    -- 두 번째 보석 칸 (유저 선택): 한 줄에 이어 붙이면 잘려서 첫 보석 줄 아래 별도 줄로 (위아래 배치)
+    local gem2Txt = nil
+    if gemTxt and recInfo.gemId2 then
+        EnsureItem(recInfo.gemId2)
+        local g2 = C_Item.GetItemNameByID(recInfo.gemId2) or L["보석"]
+        local g2i = C_Item.GetItemIconByID(recInfo.gemId2)
+        local g2q = C_Item.GetItemQualityByID(recInfo.gemId2)
+        local g2qc = g2q and ITEM_QUALITY_COLORS[g2q]
+        gem2Txt = (g2i and ("|T" .. g2i .. ":14:14|t ") or "") .. (g2qc and g2qc.hex or "|cffffffff") .. g2 .. "|r"
     end
     local anchor = hasItem and rec.name or rec -- 아이템 추천 옆 / 없으면 rec 안쪽 끝 기준
     local anchorPoint = hasItem and rec.subOutward or rec.subInward
@@ -505,7 +511,7 @@ local function SetRec(rec, recInfo, animate)
         rec.subEnch.tipText = recInfo.ench
         if recInfo.enchItemId and recInfo.enchItemId > 0 then EnsureItem(recInfo.enchItemId) end
         rec.subEnch:ClearAllPoints()
-        rec.subEnch:SetPoint(rec.subInward, anchor, anchorPoint, ax, both and 8 or 0)
+        rec.subEnch:SetPoint(rec.subInward, anchor, anchorPoint, ax, both and (gem2Txt and 14 or 8) or 0)
         rec.subEnch:SetShownAll(true)
     else
         rec.subEnch:SetShownAll(false)
@@ -521,17 +527,31 @@ local function SetRec(rec, recInfo, animate)
             -- 화살표가 아이콘을 가리키고, 클릭 = 보석 커스텀. 공간은 셀 바깥까지 사용
             rec.subGem.fs:SetJustifyH(rec.subInward == "RIGHT" and "RIGHT" or "LEFT")
             rec.subGem:SetPoint(rec.subInward, cell.icon, rec.subOutward,
-                rec.subInward == "RIGHT" and -18 or 18, 0)
+                rec.subInward == "RIGHT" and -18 or 18, gem2Txt and 7 or 0)
             rec.subGem:SetShownAll(true)
             if rec.subGem.arrowIn then rec.subGem.arrowIn:Hide() end
         else
             rec.subGem.fs:SetJustifyH(rec.subInward == "RIGHT" and "RIGHT" or "LEFT")
-            rec.subGem:SetPoint(rec.subInward, anchor, anchorPoint, ax, both and -8 or 0)
+            rec.subGem:SetPoint(rec.subInward, anchor, anchorPoint, ax, both and (gem2Txt and 0 or -8) or (gem2Txt and 7 or 0))
             rec.subGem:SetShownAll(true)
             if rec.subGem.arrowIn then rec.subGem.arrowIn:Hide() end
         end
     else
         rec.subGem:SetShownAll(false)
+    end
+    if gem2Txt then
+        local g2 = rec.subGem2
+        g2.fs:SetText(gem2Txt)
+        g2.fs:SetJustifyH(rec.subGem.fs:GetJustifyH())
+        g2.tipItemId = recInfo.gemId2
+        g2.tipText = nil
+        g2:ClearAllPoints()
+        local side = rec.subInward == "RIGHT" and "RIGHT" or "LEFT"
+        g2:SetPoint("TOP" .. side, rec.subGem, "BOTTOM" .. side, 0, 0)
+        g2:SetShownAll(true)
+        if g2.arrowIn then g2.arrowIn:Hide() end
+    else
+        rec.subGem2:SetShownAll(false)
     end
 
     rec:Show()
@@ -2788,7 +2808,15 @@ RenderDropdown = function(d)
         end
         local list = {}
         if canRemove then list[#list + 1] = { 0 } end
-        for _, e in ipairs(metaList) do list[#list + 1] = e end
+        -- 랭커 보석(사용자 수 순) 다음에 데이터의 나머지 보석 전부 (21종 모두 선택 가능)
+        local seen = {}
+        for _, e in ipairs(metaList) do list[#list + 1] = e; seen[e[1]] = true end
+        local rest = {}
+        for gid in pairs(WythicPlusGearData.gemStats or {}) do
+            if not seen[gid] then rest[#rest + 1] = gid end
+        end
+        table.sort(rest)
+        for _, gid in ipairs(rest) do list[#list + 1] = { gid, 0 } end
         local pages = math.max(1, math.ceil(#list / GRID_PER_PAGE))
         if d.page > pages then d.page = pages end
         local first = (d.page - 1) * GRID_PER_PAGE
@@ -2825,7 +2853,8 @@ RenderDropdown = function(d)
                     b.icon:SetTexture(C_Item.GetItemIconByID(gid) or 134400)
                     b.icon:SetVertexColor(1, 1, 1, 1)
                     b.glyph:Hide()
-                    b.sub:SetText("|cff9ca3af" .. string.format(L["%d명"], e[2] or 0) .. "|r")
+                    -- 랭커가 안 쓰는 보석(추가 목록)은 인원 대신 대시
+                    b.sub:SetText((e[2] or 0) > 0 and ("|cff9ca3af" .. string.format(L["%d명"], e[2]) .. "|r") or "|cff6b7280—|r")
                     b.check:SetShown(wgs ~= nil and wgs == gid)
                 end
                 if gemTbl[slotKey] == gid then
@@ -3816,12 +3845,13 @@ local function TogglePresetFrame(anchor)
 end
 
 -- 보석 선택 드롭다운 — 아이템 드롭다운 프레임 재사용 (gem 모드)
-ShowGemDropdown = function(slotKey, anchorFrame)
+ShowGemDropdown = function(slotKey, anchorFrame, socket)
     if not (panel and panel.effSpec) then return end
     local d = EnsureDropdown()
     d.fromCraft = nil
-    d.gemSocket = 1
-    if d:IsShown() and d.slotKey == slotKey and d.mode == "gem" then d:Hide() return end
+    local sock = socket or 1 -- 카드의 두 번째 보석 줄은 2번 칸을 연다
+    if d:IsShown() and d.slotKey == slotKey and d.mode == "gem" and d.gemSocket == sock then d:Hide() return end
+    d.gemSocket = sock
     d.mode = "gem"
     d.slotKey = slotKey
     d.page = 1
